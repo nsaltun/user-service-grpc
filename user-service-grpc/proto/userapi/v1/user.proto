@@ -2,8 +2,8 @@ syntax = "proto3";
 
 package userapi.v1;
 
+import "userapi/v1/meta.proto";
 import "google/api/field_behavior.proto";
-import "shared/v1/meta.proto";
 
 option go_package = "github.com/nsaltun/protos/userapi/v1;userapi";
 
@@ -17,7 +17,7 @@ message User {
     string email=6;
     string country=7;
     UserStatus status=8;
-    shared.v1.Meta meta=9;
+    userapi.v1.Meta meta=9;
 }
 
 enum UserStatus{

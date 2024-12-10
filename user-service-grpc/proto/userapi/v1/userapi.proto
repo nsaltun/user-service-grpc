@@ -6,7 +6,7 @@ import "userapi/v1/user.proto";
 
 option go_package = "github.com/nsaltun/protos/userapi/v1;userapi";
 
-service UserService {
+service UserAPI {
   rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
 }
 

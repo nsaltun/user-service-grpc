@@ -1,10 +1,9 @@
 syntax = "proto3";
 
-package shared.v1;
+package userapi.v1;
 
 import "google/protobuf/timestamp.proto";
 
-// option go_package = "github.com/nsaltun/protos/shared/v1;shared";
 option go_package = "github.com/nsaltun/protos/userapi/v1;userapi";
 
 message Meta{
