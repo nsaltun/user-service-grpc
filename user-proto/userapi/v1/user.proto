@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package userapi.v1;
+
+import "google/api/field_behavior.proto";
+import "shared/v1/meta.proto";
+
+option go_package = "github.com/nsaltun/protos/userapi/v1;userapi";
+
+// User represents the user model
+message User {
+	string id=1 [(google.api.field_behavior) = OUTPUT_ONLY];// Output-only field
+    string first_name=2;
+    string last_name=3;
+    string nick_name=4;
+    string password=5;
+    string email=6;
+    string country=7;
+    UserStatus status=8;
+    // shared.v1.Meta meta=9;
+}
+
+enum UserStatus{
+    USER_STATUS_UNSPECIFIED=0;
+    USER_STATUS_ACTIVE=1;
+    USER_STATUS_INACTIVE=2;
+}
+

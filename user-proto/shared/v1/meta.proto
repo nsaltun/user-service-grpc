@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package shared.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/nsaltun/protos/shared/v1;shared";
+
+message Meta{
+    google.protobuf.Timestamp created_at=1;
+    google.protobuf.Timestamp updated_at=2;
+    int64 version=3;
+}
