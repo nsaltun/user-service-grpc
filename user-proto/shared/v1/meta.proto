@@ -4,7 +4,8 @@ package shared.v1;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/nsaltun/protos/shared/v1;shared";
+// option go_package = "github.com/nsaltun/protos/shared/v1;shared";
+option go_package = "github.com/nsaltun/protos/userapi/v1;userapi";
 
 message Meta{
     google.protobuf.Timestamp created_at=1;

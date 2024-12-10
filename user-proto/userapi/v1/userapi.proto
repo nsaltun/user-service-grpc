@@ -15,5 +15,5 @@ message CreateUserRequest {
 }
 
 message CreateUserResponse {
-  string id = 1;
+  userapi.v1.User user=1;
 }

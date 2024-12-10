@@ -17,7 +17,7 @@ message User {
     string email=6;
     string country=7;
     UserStatus status=8;
-    // shared.v1.Meta meta=9;
+    shared.v1.Meta meta=9;
 }
 
 enum UserStatus{
