@@ -1,0 +1,12 @@
+1. middlewares
+    - auth middleware
+2. repository
+3. service codes
+4. docker and docker-compose
+5. extend protos with the needs of endpoints accordingly
+
+
+
+
+
+99. why buf.build?
