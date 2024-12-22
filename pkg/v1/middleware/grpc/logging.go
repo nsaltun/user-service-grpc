@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	grpcserver "github.com/nsaltun/user-service-grpc/pkg/v1/grpc"
@@ -15,9 +16,13 @@ func LoggingInterceptor() grpc.UnaryServerInterceptor {
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler,
 	) (interface{}, error) {
-		slog.InfoContext(ctx, "Handling ", "method", info.FullMethod)
+		slog.InfoContext(ctx, fmt.Sprintf("Handling method %s", info.FullMethod))
 		resp, err := handler(ctx, req)
-		slog.InfoContext(ctx, "Finished %s with error: %v", info.FullMethod, err)
+		if err != nil {
+			slog.InfoContext(ctx, fmt.Sprintf("Finished %s with error", info.FullMethod), "err", err, "resp", resp)
+		} else {
+			slog.InfoContext(ctx, fmt.Sprintf("Finished %s successfully", info.FullMethod), "resp", resp)
+		}
 		return resp, err
 	}
 }

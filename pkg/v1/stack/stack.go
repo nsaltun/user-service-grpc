@@ -1,7 +1,6 @@
 package stack
 
 import (
-	"fmt"
 	"log"
 )
 
@@ -38,16 +37,11 @@ func (s *stack) Close() {
 
 type AbstractProvider struct {
 	Provider
-	initCalled  bool
-	closeCalled bool
 }
 
 func (a *AbstractProvider) Init() error {
-	a.initCalled = true
 	return nil
 }
 
 func (a *AbstractProvider) Close() {
-	a.closeCalled = true
-	fmt.Println("close for abstract provider")
 }
