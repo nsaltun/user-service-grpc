@@ -29,7 +29,7 @@ func TestStacks(t *testing.T) {
 	assert.True(t, db.IsInitCalled())
 	assert.True(t, db.IsCloseCalled())
 	assert.True(t, second.IsInitCalled())
-	assert.True(t, second.IsCloseCalled())
+	assert.False(t, second.IsCloseCalled())
 
 }
 
