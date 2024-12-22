@@ -21,8 +21,8 @@ func TestStacks(t *testing.T) {
 				fmt.Println("panic recovered!")
 			}
 		}()
-		s.Init(db)
-		s.Init(second)
+		s.MustInit(db)
+		s.MustInit(second)
 		assert.True(t, second.IsInitCalled())
 	}()
 

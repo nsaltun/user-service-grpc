@@ -6,7 +6,7 @@ import (
 )
 
 type Stack interface {
-	Init(p Provider)
+	MustInit(p Provider)
 	Close()
 }
 
@@ -23,7 +23,7 @@ func New() Stack {
 	return &stack{}
 }
 
-func (s *stack) Init(p Provider) {
+func (s *stack) MustInit(p Provider) {
 	s.providers = append(s.providers, p)
 	if err := p.Init(); err != nil {
 		log.Panicf("err while init a provider!. err:%v", err.Error())

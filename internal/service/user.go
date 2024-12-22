@@ -3,14 +3,17 @@ package service
 import (
 	"context"
 
+	"github.com/nsaltun/user-service-grpc/pkg/v1/stack"
 	"github.com/nsaltun/user-service-grpc/proto/generated/go/userapi/v1"
 )
 
 type UserAPI interface {
+	stack.Provider
 	userapi.UserAPIServer
 }
 
 type userService struct {
+	stack.AbstractProvider
 	userapi.UnimplementedUserAPIServer
 }
 
