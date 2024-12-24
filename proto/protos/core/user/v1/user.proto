@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-package userapi.user.v1;
+package core.user.v1;
 
-import "types/v1/meta.proto";
+import "shared/types/v1/meta.proto";
 import "google/api/field_behavior.proto";
 
 
@@ -16,7 +16,7 @@ message User {
     string email=6;
     string country=7;
     UserStatus status=8;
-    userapi.types.v1.Meta meta=9;
+    shared.types.v1.Meta meta=9;
 }
 
 message UserFilter {

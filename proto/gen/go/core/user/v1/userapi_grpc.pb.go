@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.3.0
 // - protoc             (unknown)
-// source: user/v1/userapi.proto
+// source: core/user/v1/userapi.proto
 
 package userv1
 
@@ -19,10 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	UserAPI_CreateUser_FullMethodName     = "/userapi.user.v1.UserAPI/CreateUser"
-	UserAPI_UpdateUserById_FullMethodName = "/userapi.user.v1.UserAPI/UpdateUserById"
-	UserAPI_DeleteUserById_FullMethodName = "/userapi.user.v1.UserAPI/DeleteUserById"
-	UserAPI_ListUsers_FullMethodName      = "/userapi.user.v1.UserAPI/ListUsers"
+	UserAPI_CreateUser_FullMethodName     = "/core.user.v1.UserAPI/CreateUser"
+	UserAPI_UpdateUserById_FullMethodName = "/core.user.v1.UserAPI/UpdateUserById"
+	UserAPI_DeleteUserById_FullMethodName = "/core.user.v1.UserAPI/DeleteUserById"
+	UserAPI_ListUsers_FullMethodName      = "/core.user.v1.UserAPI/ListUsers"
 )
 
 // UserAPIClient is the client API for UserAPI service.
@@ -195,7 +195,7 @@ func _UserAPI_ListUsers_Handler(srv interface{}, ctx context.Context, dec func(i
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var UserAPI_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "userapi.user.v1.UserAPI",
+	ServiceName: "core.user.v1.UserAPI",
 	HandlerType: (*UserAPIServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -216,5 +216,5 @@ var UserAPI_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "user/v1/userapi.proto",
+	Metadata: "core/user/v1/userapi.proto",
 }

@@ -1,6 +1,6 @@
 syntax="proto3";
 
-package userapi.types.v1;
+package shared.types.v1;
 
 message List{
     int64 limit=1;

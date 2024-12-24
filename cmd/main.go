@@ -6,7 +6,7 @@ import (
 	"github.com/nsaltun/user-service-grpc/pkg/v1/logging"
 	grpcmiddl "github.com/nsaltun/user-service-grpc/pkg/v1/middleware/grpc"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/stack"
-	userapi "github.com/nsaltun/user-service-grpc/proto/gen/go/user/v1"
+	userapi "github.com/nsaltun/user-service-grpc/proto/gen/go/core/user/v1"
 )
 
 func main() {
