@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package userapi.user.v1;
+
+import "user/v1/user.proto";
+import "types/v1/request_params.proto";
+import "types/v1/response_params.proto";
+
+
+service UserAPI {
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+  rpc UpdateUserById(UpdateUserByIdRequest) returns (UpdateUserByIdResponse);
+  rpc DeleteUserById(DeleteUserByIdRequest) returns (DeleteUserByIdResponse);
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+}
+
+message CreateUserRequest {
+  userapi.user.v1.User user = 1;
+}
+
+message CreateUserResponse {
+  userapi.user.v1.User user=1;
+}
+
+message UpdateUserByIdRequest{
+  //user id to be updated
+  string id=1;
+  //user object that conveys user payload to be updated
+  userapi.user.v1.User user=2;
+}
+
+message UpdateUserByIdResponse{
+  //updated user info
+  userapi.user.v1.User user=1;
+}
+
+message DeleteUserByIdRequest{
+  // user id to be deleted
+  string id=1;
+}
+
+message DeleteUserByIdResponse{}
+
+message ListUsersRequest{
+  //pagination props
+  userapi.types.v1.List params=1;
+
+  //Filter props
+  userapi.user.v1.UserFilter filter=2;
+}
+
+message ListUsersResponse{
+  //pagination props for response
+  userapi.types.v1.Pagination params=1;
+
+  //Filter props
+  repeated userapi.user.v1.User filter=2;
+}

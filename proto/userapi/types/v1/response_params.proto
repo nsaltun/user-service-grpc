@@ -1,0 +1,17 @@
+syntax="proto3";
+
+package userapi.types.v1;
+
+
+message Pagination{
+    // Total number of records in the collection
+    int64 total_records=1;
+    // Number of items per page
+    int64 current_limit=2;
+    // Number of items to skip
+    int64 current_offset=3;
+    // Indicator if there is a next page
+    bool has_next=4;
+    // Indicator if there is a previous page
+    bool has_previous=5;
+}

@@ -1,10 +1,8 @@
 syntax = "proto3";
 
-package userapi.v1;
+package userapi.types.v1;
 
 import "google/protobuf/timestamp.proto";
-
-option go_package = "github.com/nsaltun/protos/userapi/v1;userapi";
 
 message Meta{
     google.protobuf.Timestamp created_at=1;

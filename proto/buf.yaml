@@ -1,9 +1,11 @@
-version: v1
+version: v2
+modules:
+  - path: userapi
 deps:
   - buf.build/googleapis/googleapis
 lint:
   use:
-    - DEFAULT
+    - STANDARD
 breaking:
   use:
     - FILE

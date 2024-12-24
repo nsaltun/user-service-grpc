@@ -1,11 +1,10 @@
 syntax = "proto3";
 
-package userapi.v1;
+package userapi.user.v1;
 
-import "userapi/v1/meta.proto";
+import "types/v1/meta.proto";
 import "google/api/field_behavior.proto";
 
-option go_package = "github.com/nsaltun/protos/userapi/v1;userapi";
 
 // User represents the user model
 message User {
@@ -17,7 +16,17 @@ message User {
     string email=6;
     string country=7;
     UserStatus status=8;
-    userapi.v1.Meta meta=9;
+    userapi.types.v1.Meta meta=9;
+}
+
+message UserFilter {
+	string id=1;
+	string first_name=2;
+	string LastName=3;
+	string NickName=4;
+	string Email=5;
+	string Country=6;
+	UserStatus status=7;
 }
 
 enum UserStatus{

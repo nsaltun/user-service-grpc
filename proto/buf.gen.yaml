@@ -1,10 +1,24 @@
-version: v1
+version: v2
+clean: true
+managed:
+  enabled: true
+  disable:
+    - module: buf.build/googleapis/googleapis
+  override:
+    - file_option: go_package_prefix
+      value: github.com/nsaltun/user-service-grpc/proto/gen/go
 plugins:
-  - name: go
-    out: generated/go
+  - remote: buf.build/protocolbuffers/go:v1.31.0
+    out: gen/go
     opt:
       - paths=source_relative
-  - name: go-grpc
-    out: generated/go
+  - remote: buf.build/grpc/go:v1.3.0
+    out: gen/go
     opt:
       - paths=source_relative
+  - remote: buf.build/connectrpc/go
+    out: gen
+    opt: paths=source_relative
+
+inputs:
+  - directory: userapi
