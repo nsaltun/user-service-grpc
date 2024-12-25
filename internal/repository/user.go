@@ -47,8 +47,8 @@ func (r *userRepository) createIndexes() error {
 			Options: options.Index(),                    // Background creation
 		},
 		{
-			Keys:    bson.D{{Key: "nickName", Value: 1}}, // Ascending index on nickName
-			Options: options.Index().SetUnique(true),     // Unique constraint
+			Keys:    bson.D{{Key: "nick_name", Value: 1}}, // Ascending index on nickName
+			Options: options.Index().SetUnique(true),      // Unique constraint
 		},
 	}
 

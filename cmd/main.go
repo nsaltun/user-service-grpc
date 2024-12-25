@@ -26,7 +26,7 @@ func main() {
 	s.MustInit(userRepo)
 
 	// Register userapi to server
-	userService := service.NewUserAPI(userRepo)
+	userService := service.NewUserAPI(repository.New(userRepo))
 	s.MustInit(userService)
 
 	// grpc server

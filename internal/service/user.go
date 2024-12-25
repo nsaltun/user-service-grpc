@@ -20,11 +20,11 @@ type UserAPI interface {
 type userService struct {
 	stack.AbstractProvider
 	pb.UnimplementedUserAPIServer
-	userRepo repository.UserRepo
+	repo repository.Repository
 }
 
-func NewUserAPI(userRepo repository.UserRepo) UserAPI {
-	return &userService{userRepo: userRepo}
+func NewUserAPI(repo repository.Repository) UserAPI {
+	return &userService{repo: repo}
 }
 
 func (s *userService) CreateUser(ctx context.Context, request *pb.CreateUserRequest) (*pb.CreateUserResponse, error) {
@@ -36,7 +36,7 @@ func (s *userService) CreateUser(ctx context.Context, request *pb.CreateUserRequ
 	user.Status = model.UserStatus_Active
 	user.Meta = types.NewMeta()
 
-	err := s.userRepo.CreateUser(ctx, user)
+	err := s.repo.CreateUser(ctx, user)
 	if err != nil {
 		//TODO err handling/mapping
 		return nil, err
