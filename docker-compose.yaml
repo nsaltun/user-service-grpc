@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  mongo:
+    container_name: mongo_local_db
+    image: mongo:latest
+    ports:
+      - 27017:27017
+    volumes:
+      - user-data:/data/db
+    pull_policy: never  # Ensures the image won't be pulled if it already exists
+    networks:
+      - user-network
+  user-service:
+    image: nsaltun/user-service-grpc:latest
+    ports:
+      - 8080:8080
+    env_file:
+      - .env
+    volumes:
+      - user-data:/data/db
+    networks:
+      - user-network
+  
+networks:
+  user-network:
+    driver: bridge
+
+volumes:
+  user-data:
