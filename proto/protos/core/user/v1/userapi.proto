@@ -53,6 +53,6 @@ message ListUsersResponse{
   //pagination props for response
   shared.types.v1.Pagination params=1;
 
-  //Filter props
-  repeated core.user.v1.User filter=2;
+  //user items in response
+  repeated core.user.v1.User users=2;
 }
