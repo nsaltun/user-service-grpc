@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/nsaltun/user-service-grpc/internal/api"
 	"github.com/nsaltun/user-service-grpc/internal/repository"
 	"github.com/nsaltun/user-service-grpc/internal/service"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/db/mongohandler"
@@ -26,10 +27,12 @@ func main() {
 	s.MustInit(userRepo)
 	repo := repository.New(userRepo)
 
-	// Register userapi to server
-	userService := service.NewUserAPI(repo)
-	// Register authapi to server
-	authAPI := service.NewAuthAPI(repo)
+	// Init services
+	service := service.NewService(repo)
+
+	// Register APIs
+	userAPI := api.NewUserAPI(service)
+	authAPI := api.NewAuthAPI(service)
 
 	// grpc server
 	grpcServer := grpc.New(
@@ -37,7 +40,7 @@ func main() {
 		grpcmiddl.WithLoggingInterceptor(),
 		grpcmiddl.WithErrorInterceptor(), //error interceptor must be the last one
 	)
-	userapi.RegisterUserAPIServer(grpcServer.Server(), userService)
+	userapi.RegisterUserAPIServer(grpcServer.Server(), userAPI)
 	userapi.RegisterAuthServiceServer(grpcServer.Server(), authAPI)
 
 	//grpcServer must init in the end
