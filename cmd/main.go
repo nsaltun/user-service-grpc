@@ -24,10 +24,12 @@ func main() {
 	// Init repository
 	userRepo := repository.NewUserRepo(mongoWrapper)
 	s.MustInit(userRepo)
+	repo := repository.New(userRepo)
 
 	// Register userapi to server
-	userService := service.NewUserAPI(repository.New(userRepo))
-	s.MustInit(userService)
+	userService := service.NewUserAPI(repo)
+	// Register authapi to server
+	authAPI := service.NewAuthAPI(repo)
 
 	// grpc server
 	grpcServer := grpc.New(
@@ -36,6 +38,7 @@ func main() {
 		grpcmiddl.WithErrorInterceptor(), //error interceptor must be the last one
 	)
 	userapi.RegisterUserAPIServer(grpcServer.Server(), userService)
+	userapi.RegisterAuthServiceServer(grpcServer.Server(), authAPI)
 
 	//grpcServer must init in the end
 	s.MustInit(grpcServer)

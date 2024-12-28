@@ -12,11 +12,13 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"google.golang.org/grpc/codes"
 )
 
 type UserRepo interface {
 	stack.Provider
 	CreateUser(ctx context.Context, user *model.User) error
+	GetUserByEmail(ctx context.Context, email string) (*model.User, error)
 }
 
 type userRepository struct {
@@ -80,4 +82,20 @@ func (r *userRepository) CreateUser(ctx context.Context, user *model.User) error
 	}
 
 	return nil
+}
+
+func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*model.User, error) {
+	var user model.User
+
+	err := r.collection.FindOne(ctx, bson.M{"email": email}).Decode(&user)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, errwrap.NewError("user not found", codes.NotFound.String()).
+				SetGrpcCode(codes.NotFound)
+		}
+		return nil, errwrap.NewError("database error", codes.Internal.String()).
+			SetGrpcCode(codes.Internal)
+	}
+
+	return &user, nil
 }

@@ -9,7 +9,6 @@ import (
 	"github.com/nsaltun/user-service-grpc/internal/repository"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/crypt"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/errwrap"
-	"github.com/nsaltun/user-service-grpc/pkg/v1/stack"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/types"
 	pb "github.com/nsaltun/user-service-grpc/proto/gen/go/core/user/v1"
 	typesv1 "github.com/nsaltun/user-service-grpc/proto/gen/go/shared/types/v1"
@@ -18,12 +17,10 @@ import (
 )
 
 type UserAPI interface {
-	stack.Provider
 	pb.UserAPIServer
 }
 
 type userService struct {
-	stack.AbstractProvider
 	pb.UnimplementedUserAPIServer
 	repo repository.Repository
 }
