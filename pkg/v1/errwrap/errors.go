@@ -92,6 +92,7 @@ func (e *errorWrapper) clone() *errorWrapper {
 	return &errorWrapper{
 		code:      e.code,
 		httpCode:  e.httpCode,
+		grpcCode:  e.grpcCode,
 		message:   e.message,
 		originErr: e.originErr,
 	}

@@ -38,13 +38,13 @@ func (u *User) ToProto() *pb.User {
 	}
 }
 
-func (u *User) FromProto(pbUser *pb.User) {
+func (u *User) FromProto(pbUser *pb.User, hashedPwd string) {
 	u.Id = pbUser.Id
 	u.FirstName = pbUser.FirstName
 	u.LastName = pbUser.LastName
 	u.Email = pbUser.Email
 	u.NickName = pbUser.NickName
-	u.Password = pbUser.Password
+	u.Password = hashedPwd
 	u.Country = pbUser.Country
 	u.Status = UserStatus(pbUser.Status)
 }

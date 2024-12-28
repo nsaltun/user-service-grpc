@@ -30,7 +30,11 @@ func main() {
 	s.MustInit(userService)
 
 	// grpc server
-	grpcServer := grpc.New(grpcmiddl.WithAuthInterceptor(), grpcmiddl.WithLoggingInterceptor())
+	grpcServer := grpc.New(
+		grpcmiddl.WithAuthInterceptor(),
+		grpcmiddl.WithLoggingInterceptor(),
+		grpcmiddl.WithErrorInterceptor(), //error interceptor must be the last one
+	)
 	userapi.RegisterUserAPIServer(grpcServer.Server(), userService)
 
 	//grpcServer must init in the end

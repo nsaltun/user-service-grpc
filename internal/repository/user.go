@@ -7,6 +7,7 @@ import (
 
 	"github.com/nsaltun/user-service-grpc/internal/model"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/db/mongohandler"
+	"github.com/nsaltun/user-service-grpc/pkg/v1/errwrap"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/stack"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -72,10 +73,10 @@ func (r *userRepository) CreateUser(ctx context.Context, user *model.User) error
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
 			slog.InfoContext(ctx, "already exists with the same nickname or email.", slog.Any("error", err))
-			return err
+			return errwrap.ErrConflict.SetMessage("already exists with the same nickname or email")
 		}
 		slog.ErrorContext(ctx, "mongo create user error", slog.Any("error", err), slog.Any("user", user))
-		return err
+		return errwrap.ErrInternal.SetMessage("internal error").SetOriginError(err)
 	}
 
 	return nil
