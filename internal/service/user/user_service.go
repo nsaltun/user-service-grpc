@@ -10,6 +10,8 @@ import (
 	"github.com/nsaltun/user-service-grpc/pkg/v1/crypt"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/errwrap"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/types"
+	pb "github.com/nsaltun/user-service-grpc/proto/gen/go/core/user/v1"
+	typesv1 "github.com/nsaltun/user-service-grpc/proto/gen/go/shared/types/v1"
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/grpc/codes"
 )
@@ -18,7 +20,7 @@ type UserService interface {
 	CreateUser(ctx context.Context, user *model.User) (*model.User, error)
 	UpdateUserById(ctx context.Context, id string, user *model.User) (*model.User, error)
 	DeleteUser(ctx context.Context, id string) error
-	ListUsers(ctx context.Context) ([]*model.User, error)
+	ListUsersByFilter(ctx context.Context, filter *model.UserFilter) (*pb.ListUsersResponse, error)
 }
 
 type user struct {
@@ -100,9 +102,31 @@ func (s *user) DeleteUser(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *user) ListUsers(ctx context.Context) ([]*model.User, error) {
-	// TODO: Implement list logic
-	return nil, nil
+func (s *user) ListUsersByFilter(ctx context.Context, filter *model.UserFilter) (*pb.ListUsersResponse, error) {
+	filterBsonMap := filter.ToBson()
+
+	// Get users from repository with filter
+	users, total, err := s.repo.ListUsers(ctx, filterBsonMap, filter.Pagination)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert model users to proto users more efficiently
+	pbUsers := make([]*pb.User, 0, len(users)) // Pre-allocate with capacity
+	for _, user := range users {
+		pbUsers = append(pbUsers, user.UserToProto())
+	}
+
+	return &pb.ListUsersResponse{
+		Users: pbUsers,
+		Params: &typesv1.Pagination{
+			TotalRecords:  total,
+			HasNext:       (filter.Pagination.Offset + filter.Pagination.Limit) < total,
+			HasPrevious:   filter.Pagination.Offset > 0,
+			CurrentLimit:  filter.Pagination.Limit,
+			CurrentOffset: filter.Pagination.Offset,
+		},
+	}, nil
 }
 
 // applyPartialUpdates updates only provided fields from source to target user

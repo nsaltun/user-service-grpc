@@ -6,6 +6,7 @@ import (
 	"github.com/nsaltun/user-service-grpc/internal/model"
 	"github.com/nsaltun/user-service-grpc/internal/service/user"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/errwrap"
+	"github.com/nsaltun/user-service-grpc/pkg/v1/types"
 	pb "github.com/nsaltun/user-service-grpc/proto/gen/go/core/user/v1"
 	"google.golang.org/grpc/codes"
 )
@@ -22,7 +23,7 @@ func NewUserAPI(service user.UserService) pb.UserAPIServer {
 func (a *userAPI) CreateUser(ctx context.Context, req *pb.CreateUserRequest) (*pb.CreateUserResponse, error) {
 	// Convert proto to model
 	user := &model.User{}
-	user.FromProto(req.GetUser())
+	user.UserFromProto(req.GetUser())
 
 	// Call service
 	createdUser, err := a.service.CreateUser(ctx, user)
@@ -32,7 +33,7 @@ func (a *userAPI) CreateUser(ctx context.Context, req *pb.CreateUserRequest) (*p
 
 	// Convert back to proto and return
 	return &pb.CreateUserResponse{
-		User: createdUser.ToProto(),
+		User: createdUser.UserToProto(),
 	}, nil
 }
 
@@ -49,7 +50,7 @@ func (a *userAPI) UpdateUserById(ctx context.Context, req *pb.UpdateUserByIdRequ
 
 	// Convert proto to model and set ID
 	user := &model.User{}
-	user.FromProto(req.GetUser())
+	user.UserFromProto(req.GetUser())
 
 	// Call service
 	updatedUser, err := a.service.UpdateUserById(ctx, req.GetId(), user)
@@ -59,7 +60,7 @@ func (a *userAPI) UpdateUserById(ctx context.Context, req *pb.UpdateUserByIdRequ
 
 	// Convert back to proto and return
 	return &pb.UpdateUserByIdResponse{
-		User: updatedUser.ToProto(),
+		User: updatedUser.UserToProto(),
 	}, nil
 }
 
@@ -75,4 +76,20 @@ func (a *userAPI) DeleteUserById(ctx context.Context, req *pb.DeleteUserByIdRequ
 	}
 
 	return &pb.DeleteUserByIdResponse{}, nil
+}
+func (a *userAPI) ListUsers(ctx context.Context, req *pb.ListUsersRequest) (*pb.ListUsersResponse, error) {
+	filter := &model.UserFilter{}
+	filter.UserFilterFromProto(req.GetFilter(), req.GetParams())
+
+	if err := types.ValidatePaginationParams(filter.Pagination.Limit, filter.Pagination.Offset); err != nil {
+		return nil, err
+	}
+
+	// Call service
+	result, err := a.service.ListUsersByFilter(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }

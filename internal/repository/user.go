@@ -9,6 +9,7 @@ import (
 	"github.com/nsaltun/user-service-grpc/pkg/v1/db/mongohandler"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/errwrap"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/stack"
+	"github.com/nsaltun/user-service-grpc/pkg/v1/types"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -21,6 +22,7 @@ type UserRepo interface {
 	GetUserByEmail(ctx context.Context, email string) (*model.User, error)
 	GetUserById(ctx context.Context, id string) (*model.User, error)
 	UpdateUser(ctx context.Context, user *model.User) error
+	ListUsers(ctx context.Context, filterCriteria bson.M, filter types.PaginationReq) ([]*model.User, int64, error)
 }
 
 type userRepository struct {
@@ -140,4 +142,38 @@ func (r *userRepository) UpdateUser(ctx context.Context, user *model.User) error
 	}
 
 	return nil
+}
+
+func (r *userRepository) ListUsers(ctx context.Context, filterCriteria bson.M, filter types.PaginationReq) ([]*model.User, int64, error) {
+	// Get total count
+	total, err := r.collection.CountDocuments(ctx, filterCriteria)
+	if err != nil {
+		slog.WarnContext(ctx, "mongo list users count error", slog.Any("error", err), slog.Any("filterCriteria", filterCriteria), slog.Any("pagination", filter))
+		return nil, 0, errwrap.NewError("database error", codes.Internal.String()).SetGrpcCode(codes.Internal).SetOriginError(err)
+	}
+
+	// Create find options for pagination
+	findOptions := options.Find()
+	findOptions.SetLimit(filter.Limit)
+	findOptions.SetSkip(filter.Offset)
+
+	// Execute find with filter
+	cursor, err := r.collection.Find(ctx, filterCriteria, findOptions)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, 0, errwrap.ErrNotFound.SetMessage("user record not found")
+		}
+		slog.WarnContext(ctx, "mongo list users find error", slog.Any("error", err), slog.Any("filterCriteria", filterCriteria), slog.Any("pagination", filter))
+		return nil, 0, errwrap.NewError("database error", codes.Internal.String()).SetGrpcCode(codes.Internal).SetOriginError(err)
+	}
+	defer cursor.Close(ctx)
+
+	// Decode results
+	var users []*model.User
+	if err := cursor.All(ctx, &users); err != nil {
+		slog.WarnContext(ctx, "mongo list users decode error", slog.Any("error", err), slog.Any("filterCriteria", filterCriteria), slog.Any("pagination", filter))
+		return nil, 0, errwrap.NewError("database error", codes.Internal.String()).SetGrpcCode(codes.Internal).SetOriginError(err)
+	}
+
+	return users, total, nil
 }
