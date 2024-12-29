@@ -62,3 +62,17 @@ func (a *userAPI) UpdateUserById(ctx context.Context, req *pb.UpdateUserByIdRequ
 		User: updatedUser.ToProto(),
 	}, nil
 }
+
+func (a *userAPI) DeleteUserById(ctx context.Context, req *pb.DeleteUserByIdRequest) (*pb.DeleteUserByIdResponse, error) {
+	if req.GetId() == "" {
+		return nil, errwrap.NewError("user id is required", codes.InvalidArgument.String()).SetGrpcCode(codes.InvalidArgument)
+	}
+
+	// Call service
+	err := a.service.DeleteUser(ctx, req.GetId())
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.DeleteUserByIdResponse{}, nil
+}

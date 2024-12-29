@@ -79,7 +79,24 @@ func (s *user) UpdateUserById(ctx context.Context, id string, user *model.User) 
 }
 
 func (s *user) DeleteUser(ctx context.Context, id string) error {
-	// TODO: Implement delete logic
+	// Check if user exists
+	existingUser, err := s.repo.GetUserById(ctx, id)
+	if err != nil {
+		return err // Repository should already return appropriate error
+	}
+	if existingUser.Status == model.UserStatus_Inactive {
+		return errwrap.NewError("user is already inactive", codes.InvalidArgument.String()).SetGrpcCode(codes.InvalidArgument)
+	}
+
+	// Soft delete by updating status to Deleted
+	existingUser.Status = model.UserStatus_Inactive
+	existingUser.Meta.Update()
+
+	// Save updated user
+	if err := s.repo.UpdateUser(ctx, existingUser); err != nil {
+		return err
+	}
+
 	return nil
 }
 
