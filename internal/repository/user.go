@@ -19,6 +19,8 @@ type UserRepo interface {
 	stack.Provider
 	CreateUser(ctx context.Context, user *model.User) error
 	GetUserByEmail(ctx context.Context, email string) (*model.User, error)
+	GetUserById(ctx context.Context, id string) (*model.User, error)
+	UpdateUser(ctx context.Context, user *model.User) error
 }
 
 type userRepository struct {
@@ -98,4 +100,44 @@ func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*mod
 	}
 
 	return &user, nil
+}
+
+func (r *userRepository) GetUserById(ctx context.Context, id string) (*model.User, error) {
+	var user model.User
+
+	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&user)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, errwrap.NewError("user not found", codes.NotFound.String()).
+				SetGrpcCode(codes.NotFound)
+		}
+		return nil, errwrap.NewError("database error", codes.Internal.String()).
+			SetGrpcCode(codes.Internal)
+	}
+
+	return &user, nil
+}
+
+func (r *userRepository) UpdateUser(ctx context.Context, user *model.User) error {
+	result, err := r.collection.ReplaceOne(
+		ctx,
+		bson.M{"_id": user.Id},
+		user,
+	)
+
+	if err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			return errwrap.NewError("email or nickname already exists", codes.AlreadyExists.String()).
+				SetGrpcCode(codes.AlreadyExists)
+		}
+		return errwrap.NewError("database error", codes.Internal.String()).
+			SetGrpcCode(codes.Internal)
+	}
+
+	if result.MatchedCount == 0 {
+		return errwrap.NewError("user not found", codes.NotFound.String()).
+			SetGrpcCode(codes.NotFound)
+	}
+
+	return nil
 }

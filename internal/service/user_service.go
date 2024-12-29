@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/nsaltun/user-service-grpc/internal/model"
@@ -14,7 +15,7 @@ import (
 
 type UserService interface {
 	CreateUser(ctx context.Context, user *model.User) (*model.User, error)
-	UpdateUser(ctx context.Context, user *model.User) (*model.User, error)
+	UpdateUserById(ctx context.Context, id string, user *model.User) (*model.User, error)
 	DeleteUser(ctx context.Context, id string) error
 	ListUsers(ctx context.Context) ([]*model.User, error)
 }
@@ -44,9 +45,29 @@ func (s *service) CreateUser(ctx context.Context, user *model.User) (*model.User
 	return user, nil
 }
 
-func (s *service) UpdateUser(ctx context.Context, user *model.User) (*model.User, error) {
-	// TODO: Implement update logic
-	return user, nil
+// UpdateUserById updates a user by their ID with partial updates
+func (s *service) UpdateUserById(ctx context.Context, id string, user *model.User) (*model.User, error) {
+	// Get existing user to check if exists and merge updates
+	existingUser, err := s.repo.GetUserById(ctx, id)
+	if err != nil {
+		return nil, err // Repository should already return appropriate error
+	}
+
+	// Update only provided fields (partial update)
+	err = applyPartialUpdates(existingUser, *user)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update metadata
+	existingUser.Meta.Update()
+
+	// Save updated user
+	if err := s.repo.UpdateUser(ctx, existingUser); err != nil {
+		return nil, err
+	}
+
+	return existingUser, nil
 }
 
 func (s *service) DeleteUser(ctx context.Context, id string) error {
@@ -57,4 +78,39 @@ func (s *service) DeleteUser(ctx context.Context, id string) error {
 func (s *service) ListUsers(ctx context.Context) ([]*model.User, error) {
 	// TODO: Implement list logic
 	return nil, nil
+}
+
+// applyPartialUpdates updates only provided fields from source to target user
+func applyPartialUpdates(existingUser *model.User, user model.User) error {
+	if user.FirstName != "" {
+		existingUser.FirstName = user.FirstName
+	}
+	if user.LastName != "" {
+		existingUser.LastName = user.LastName
+	}
+	if user.NickName != "" {
+		existingUser.NickName = user.NickName
+	}
+	if user.Email != "" {
+		existingUser.Email = user.Email
+	}
+	if user.Country != "" {
+		existingUser.Country = user.Country
+	}
+	if user.Status != model.UserStatus_Unspecified {
+		existingUser.Status = user.Status
+	}
+	if user.Password != "" {
+		// Hash new password if provided
+		hashedPwd, err := crypt.HashPassword(user.Password)
+		if err != nil {
+			if err == bcrypt.ErrPasswordTooLong {
+				return errwrap.NewError("password is too long", codes.InvalidArgument.String()).SetGrpcCode(codes.InvalidArgument)
+			}
+			slog.Warn("hash password error", "error", err)
+			return errwrap.NewError("unexpected error", codes.Internal.String()).SetGrpcCode(codes.Internal)
+		}
+		existingUser.Password = hashedPwd
+	}
+	return nil
 }

@@ -8,8 +8,9 @@ import (
 type UserStatus int
 
 const (
-	UserStatus_Active   UserStatus = 1 //Default
-	UserStatus_Inactive UserStatus = 2
+	UserStatus_Unspecified UserStatus = 0 //Default
+	UserStatus_Active      UserStatus = 1 //Active
+	UserStatus_Inactive    UserStatus = 2 //Inactive
 )
 
 type User struct {
