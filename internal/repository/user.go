@@ -96,7 +96,7 @@ func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*mod
 				SetGrpcCode(codes.NotFound)
 		}
 		return nil, errwrap.NewError("database error", codes.Internal.String()).
-			SetGrpcCode(codes.Internal)
+			SetGrpcCode(codes.Internal).SetOriginError(err)
 	}
 
 	return &user, nil
@@ -112,7 +112,7 @@ func (r *userRepository) GetUserById(ctx context.Context, id string) (*model.Use
 				SetGrpcCode(codes.NotFound)
 		}
 		return nil, errwrap.NewError("database error", codes.Internal.String()).
-			SetGrpcCode(codes.Internal)
+			SetGrpcCode(codes.Internal).SetOriginError(err)
 	}
 
 	return &user, nil
@@ -128,10 +128,10 @@ func (r *userRepository) UpdateUser(ctx context.Context, user *model.User) error
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
 			return errwrap.NewError("email or nickname already exists", codes.AlreadyExists.String()).
-				SetGrpcCode(codes.AlreadyExists)
+				SetGrpcCode(codes.AlreadyExists).SetOriginError(err)
 		}
 		return errwrap.NewError("database error", codes.Internal.String()).
-			SetGrpcCode(codes.Internal)
+			SetGrpcCode(codes.Internal).SetOriginError(err)
 	}
 
 	if result.MatchedCount == 0 {

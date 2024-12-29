@@ -24,13 +24,10 @@ type UserService interface {
 func (s *service) CreateUser(ctx context.Context, user *model.User) (*model.User, error) {
 	hashedPwd, err := crypt.HashPassword(user.Password)
 	if err != nil {
-		code := codes.Internal
-		message := "unexpected error"
 		if err == bcrypt.ErrPasswordTooLong {
-			code = codes.InvalidArgument
-			message = "password is too long"
+			return nil, errwrap.NewError("password is too long", codes.InvalidArgument.String()).SetGrpcCode(codes.InvalidArgument)
 		}
-		return nil, errwrap.NewError(message, code.String()).SetGrpcCode(code)
+		return nil, errwrap.NewError("unexpected error", codes.Internal.String()).SetGrpcCode(codes.Internal).SetOriginError(err)
 	}
 
 	user.Password = hashedPwd
@@ -108,7 +105,7 @@ func applyPartialUpdates(existingUser *model.User, user model.User) error {
 				return errwrap.NewError("password is too long", codes.InvalidArgument.String()).SetGrpcCode(codes.InvalidArgument)
 			}
 			slog.Warn("hash password error", "error", err)
-			return errwrap.NewError("unexpected error", codes.Internal.String()).SetGrpcCode(codes.Internal)
+			return errwrap.NewError("unexpected error", codes.Internal.String()).SetGrpcCode(codes.Internal).SetOriginError(err)
 		}
 		existingUser.Password = hashedPwd
 	}
