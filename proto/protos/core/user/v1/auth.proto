@@ -23,10 +23,13 @@ message LoginRequest {
 }
 
 // LoginResponse is empty since we only use status codes
+//
+// Response status codes:
+// - OK (0): Successfully logged in
+// - UNAUTHENTICATED (16): Invalid credentials
+// - NOT_FOUND (5): User not found
+// - INTERNAL (13): Server error
 message LoginResponse {
-    // Response is empty as we use gRPC status codes:
-    // - OK (0): Successfully logged in
-    // - UNAUTHENTICATED (16): Invalid credentials
-    // - NOT_FOUND (5): User not found
-    // - INTERNAL (13): Server error
+    // access token to be used for protected endpoints
+    string access_token = 1;
 } 

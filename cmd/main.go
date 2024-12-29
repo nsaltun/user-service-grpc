@@ -4,6 +4,7 @@ import (
 	"github.com/nsaltun/user-service-grpc/internal/api"
 	"github.com/nsaltun/user-service-grpc/internal/repository"
 	"github.com/nsaltun/user-service-grpc/internal/service"
+	"github.com/nsaltun/user-service-grpc/pkg/v1/auth"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/db/mongohandler"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/grpc"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/logging"
@@ -27,8 +28,11 @@ func main() {
 	s.MustInit(userRepo)
 	repo := repository.New(userRepo)
 
+	// Init JWT manager
+	jwtManager := auth.NewJWTManager()
+
 	// Init services
-	service := service.NewService(repo)
+	service := service.NewService(repo, jwtManager)
 
 	// Register APIs
 	userAPI := api.NewUserAPI(service)
@@ -36,9 +40,9 @@ func main() {
 
 	// grpc server
 	grpcServer := grpc.New(
-		grpcmiddl.WithAuthInterceptor(),
-		grpcmiddl.WithLoggingInterceptor(),
 		grpcmiddl.WithErrorInterceptor(), //error interceptor must be the last one
+		grpcmiddl.WithLoggingInterceptor(),
+		grpcmiddl.WithAuthInterceptor(jwtManager),
 	)
 	userapi.RegisterUserAPIServer(grpcServer.Server(), userAPI)
 	userapi.RegisterAuthServiceServer(grpcServer.Server(), authAPI)

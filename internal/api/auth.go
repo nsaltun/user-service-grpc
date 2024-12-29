@@ -25,9 +25,10 @@ func (a *authAPI) Login(ctx context.Context, req *pb.LoginRequest) (*pb.LoginRes
 			SetGrpcCode(codes.InvalidArgument)
 	}
 
-	if err := a.service.Login(ctx, req.GetEmail(), req.GetPassword()); err != nil {
+	accessToken, err := a.service.Login(ctx, req.GetEmail(), req.GetPassword())
+	if err != nil {
 		return nil, err
 	}
 
-	return &pb.LoginResponse{}, nil
+	return &pb.LoginResponse{AccessToken: accessToken}, nil
 }
