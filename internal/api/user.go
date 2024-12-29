@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/nsaltun/user-service-grpc/internal/model"
-	"github.com/nsaltun/user-service-grpc/internal/service"
+	"github.com/nsaltun/user-service-grpc/internal/service/user"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/errwrap"
 	pb "github.com/nsaltun/user-service-grpc/proto/gen/go/core/user/v1"
 	"google.golang.org/grpc/codes"
@@ -12,10 +12,10 @@ import (
 
 type userAPI struct {
 	pb.UnimplementedUserAPIServer
-	service service.UserService
+	service user.UserService
 }
 
-func NewUserAPI(service service.UserService) pb.UserAPIServer {
+func NewUserAPI(service user.UserService) pb.UserAPIServer {
 	return &userAPI{service: service}
 }
 

@@ -3,7 +3,7 @@ package api
 import (
 	"context"
 
-	"github.com/nsaltun/user-service-grpc/internal/service"
+	"github.com/nsaltun/user-service-grpc/internal/service/auth"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/errwrap"
 	pb "github.com/nsaltun/user-service-grpc/proto/gen/go/core/user/v1"
 	"google.golang.org/grpc/codes"
@@ -11,10 +11,10 @@ import (
 
 type authAPI struct {
 	pb.UnimplementedAuthServiceServer
-	service service.AuthService
+	service auth.AuthService
 }
 
-func NewAuthAPI(service service.AuthService) pb.AuthServiceServer {
+func NewAuthAPI(service auth.AuthService) pb.AuthServiceServer {
 	return &authAPI{service: service}
 }
 

@@ -1,4 +1,4 @@
-package service
+package user
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/nsaltun/user-service-grpc/internal/model"
+	"github.com/nsaltun/user-service-grpc/internal/repository"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/crypt"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/errwrap"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/types"
@@ -20,8 +21,18 @@ type UserService interface {
 	ListUsers(ctx context.Context) ([]*model.User, error)
 }
 
+type user struct {
+	repo repository.Repository
+}
+
+func NewUserService(repo repository.Repository) UserService {
+	return &user{
+		repo: repo,
+	}
+}
+
 // User service implementations
-func (s *service) CreateUser(ctx context.Context, user *model.User) (*model.User, error) {
+func (s *user) CreateUser(ctx context.Context, user *model.User) (*model.User, error) {
 	hashedPwd, err := crypt.HashPassword(user.Password)
 	if err != nil {
 		if err == bcrypt.ErrPasswordTooLong {
@@ -43,7 +54,7 @@ func (s *service) CreateUser(ctx context.Context, user *model.User) (*model.User
 }
 
 // UpdateUserById updates a user by their ID with partial updates
-func (s *service) UpdateUserById(ctx context.Context, id string, user *model.User) (*model.User, error) {
+func (s *user) UpdateUserById(ctx context.Context, id string, user *model.User) (*model.User, error) {
 	// Get existing user to check if exists and merge updates
 	existingUser, err := s.repo.GetUserById(ctx, id)
 	if err != nil {
@@ -67,12 +78,12 @@ func (s *service) UpdateUserById(ctx context.Context, id string, user *model.Use
 	return existingUser, nil
 }
 
-func (s *service) DeleteUser(ctx context.Context, id string) error {
+func (s *user) DeleteUser(ctx context.Context, id string) error {
 	// TODO: Implement delete logic
 	return nil
 }
 
-func (s *service) ListUsers(ctx context.Context) ([]*model.User, error) {
+func (s *user) ListUsers(ctx context.Context) ([]*model.User, error) {
 	// TODO: Implement list logic
 	return nil, nil
 }
