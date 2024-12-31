@@ -29,7 +29,8 @@ func main() {
 	repo := repository.New(userRepo)
 
 	// Init JWT manager
-	jwtManager := auth.NewJWTManager()
+	jwtManager := auth.NewJWTManager(mongoWrapper)
+	s.MustInit(jwtManager)
 
 	// Init services
 	service := service.NewService(repo, jwtManager)

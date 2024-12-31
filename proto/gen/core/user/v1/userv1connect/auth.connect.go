@@ -35,18 +35,23 @@ const (
 const (
 	// AuthServiceLoginProcedure is the fully-qualified name of the AuthService's Login RPC.
 	AuthServiceLoginProcedure = "/core.user.v1.AuthService/Login"
+	// AuthServiceLogoutProcedure is the fully-qualified name of the AuthService's Logout RPC.
+	AuthServiceLogoutProcedure = "/core.user.v1.AuthService/Logout"
 )
 
 // These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
 var (
-	authServiceServiceDescriptor     = v1.File_core_user_v1_auth_proto.Services().ByName("AuthService")
-	authServiceLoginMethodDescriptor = authServiceServiceDescriptor.Methods().ByName("Login")
+	authServiceServiceDescriptor      = v1.File_core_user_v1_auth_proto.Services().ByName("AuthService")
+	authServiceLoginMethodDescriptor  = authServiceServiceDescriptor.Methods().ByName("Login")
+	authServiceLogoutMethodDescriptor = authServiceServiceDescriptor.Methods().ByName("Logout")
 )
 
 // AuthServiceClient is a client for the core.user.v1.AuthService service.
 type AuthServiceClient interface {
 	// Login authenticates a user with email and password
 	Login(context.Context, *connect.Request[v1.LoginRequest]) (*connect.Response[v1.LoginResponse], error)
+	// Logout invalidates the current session
+	Logout(context.Context, *connect.Request[v1.LogoutRequest]) (*connect.Response[v1.LogoutResponse], error)
 }
 
 // NewAuthServiceClient constructs a client for the core.user.v1.AuthService service. By default, it
@@ -65,12 +70,19 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(authServiceLoginMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
+		logout: connect.NewClient[v1.LogoutRequest, v1.LogoutResponse](
+			httpClient,
+			baseURL+AuthServiceLogoutProcedure,
+			connect.WithSchema(authServiceLogoutMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // authServiceClient implements AuthServiceClient.
 type authServiceClient struct {
-	login *connect.Client[v1.LoginRequest, v1.LoginResponse]
+	login  *connect.Client[v1.LoginRequest, v1.LoginResponse]
+	logout *connect.Client[v1.LogoutRequest, v1.LogoutResponse]
 }
 
 // Login calls core.user.v1.AuthService.Login.
@@ -78,10 +90,17 @@ func (c *authServiceClient) Login(ctx context.Context, req *connect.Request[v1.L
 	return c.login.CallUnary(ctx, req)
 }
 
+// Logout calls core.user.v1.AuthService.Logout.
+func (c *authServiceClient) Logout(ctx context.Context, req *connect.Request[v1.LogoutRequest]) (*connect.Response[v1.LogoutResponse], error) {
+	return c.logout.CallUnary(ctx, req)
+}
+
 // AuthServiceHandler is an implementation of the core.user.v1.AuthService service.
 type AuthServiceHandler interface {
 	// Login authenticates a user with email and password
 	Login(context.Context, *connect.Request[v1.LoginRequest]) (*connect.Response[v1.LoginResponse], error)
+	// Logout invalidates the current session
+	Logout(context.Context, *connect.Request[v1.LogoutRequest]) (*connect.Response[v1.LogoutResponse], error)
 }
 
 // NewAuthServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -96,10 +115,18 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(authServiceLoginMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
+	authServiceLogoutHandler := connect.NewUnaryHandler(
+		AuthServiceLogoutProcedure,
+		svc.Logout,
+		connect.WithSchema(authServiceLogoutMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/core.user.v1.AuthService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AuthServiceLoginProcedure:
 			authServiceLoginHandler.ServeHTTP(w, r)
+		case AuthServiceLogoutProcedure:
+			authServiceLogoutHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -111,4 +138,8 @@ type UnimplementedAuthServiceHandler struct{}
 
 func (UnimplementedAuthServiceHandler) Login(context.Context, *connect.Request[v1.LoginRequest]) (*connect.Response[v1.LoginResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("core.user.v1.AuthService.Login is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) Logout(context.Context, *connect.Request[v1.LogoutRequest]) (*connect.Response[v1.LogoutResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("core.user.v1.AuthService.Logout is not implemented"))
 }

@@ -39,7 +39,7 @@ func (s *auth_service) Login(ctx context.Context, email, password string) (strin
 	}
 
 	// Generate JWT token
-	token, err := s.jwtManager.Generate(user.Id)
+	token, err := s.jwtManager.Generate(ctx, user.Id)
 
 	if err != nil {
 		return "", errwrap.ErrInternal.SetMessage("failed to generate token").SetOriginError(err)

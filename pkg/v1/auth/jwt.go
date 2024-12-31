@@ -6,62 +6,135 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/nsaltun/user-service-grpc/pkg/v1/db/mongohandler"
+	"github.com/nsaltun/user-service-grpc/pkg/v1/stack"
 	"github.com/spf13/viper"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-//TODO: consider having interface here for better unit testing(mocking)
+/*
+JWT System Overview
+------------------
+This implements a stateless JWT system with the following features:
 
+Storage:
+- Only stores invalidation records
+- Automatic cleanup using MongoDB TTL index
+- Efficient queries via compound indexes
+
+Invalidation Strategies:
+1. InvalidateUserTokens
+   - Invalidates all tokens for a user
+   - Used for logout scenarios
+
+2. InvalidateTokensBefore
+   - Invalidates tokens before a specific time
+   - Enables selective invalidation
+
+Scalability Benefits:
+- Minimal storage overhead (only tracks invalid tokens)
+- Automatic cleanup of expired records
+- No need to track valid tokens
+- Works seamlessly across multiple service instances
+*/
+
+const (
+	BufferTimeForExpiration = 5 * time.Minute
+)
+
+// Claims represents the claims in a JWT token
 type Claims struct {
 	UserID string `json:"user_id"`
+	// IAT is automatically included from RegisteredClaims
 	jwt.RegisteredClaims
 }
 
+// InvalidToken represents an invalidated token in MongoDB
+type InvalidToken struct {
+	UserID    string    `bson:"user_id"`
+	IssuedAt  time.Time `bson:"issued_at"`
+	ExpiresAt time.Time `bson:"expires_at"` // Used for TTL index
+}
+
+// JWTManager is a manager for JWT tokens
 type JWTManager struct {
+	stack.AbstractProvider
 	authEnabled    bool
 	secretKey      string
 	tokenDuration  time.Duration
 	protectedRoles map[string][]string
+	collection     *mongo.Collection
 }
 
+// tokenParserFn is a function type for parsing tokens
 type tokenParserFn func(ctx context.Context) (string, error)
 
-func NewJWTManager() *JWTManager {
+// NewJWTManager creates a new JWTManager
+func NewJWTManager(mongoWrapper *mongohandler.MongoDBWrapper) *JWTManager {
 	vi := viper.New()
 	vi.AutomaticEnv()
 
 	vi.SetDefault("JWT_SECRET_KEY", "secret")
 	vi.SetDefault("JWT_TOKEN_DURATION", "15m")
 	vi.SetDefault("JWT_AUTH_ENABLED", "true")
+	vi.SetDefault("MONGODB_COLLECTION", "invalid_tokens")
 
-	secretKey := vi.GetString("JWT_SECRET_KEY")
-	tokenDuration := vi.GetDuration("JWT_TOKEN_DURATION")
-	authEnabled := vi.GetBool("JWT_AUTH_ENABLED")
-
-	//TODO: get from environment variables
 	protectedEndpoints := map[string][]string{
-		"/core.user.v1.UserAPI/CreateUser":     {"user"}, // protected
-		"/core.user.v1.UserAPI/UpdateUserById": {"user"}, // protected
-		"/core.user.v1.UserAPI/DeleteUserById": {"user"}, // protected
-		"/core.user.v1.UserAPI/ListUsers":      {"user"}, // protected
+		"/core.user.v1.UserAPI/CreateUser":     {"user"},
+		"/core.user.v1.UserAPI/UpdateUserById": {"user"},
+		"/core.user.v1.UserAPI/DeleteUserById": {"user"},
+		"/core.user.v1.UserAPI/ListUsers":      {"user"},
 	}
+
+	collection := mongoWrapper.Collection(vi.GetString("MONGODB_COLLECTION"))
+
 	return &JWTManager{
-		secretKey:      secretKey,
-		tokenDuration:  tokenDuration,
+		secretKey:      vi.GetString("JWT_SECRET_KEY"),
+		tokenDuration:  vi.GetDuration("JWT_TOKEN_DURATION"),
 		protectedRoles: protectedEndpoints,
-		authEnabled:    authEnabled,
+		authEnabled:    vi.GetBool("JWT_AUTH_ENABLED"),
+		collection:     collection,
 	}
 }
 
-func (m *JWTManager) Generate(userID string) (string, error) {
-	//TODO: invalidate previous token
+func (m *JWTManager) Init() error {
+	// Create TTL index on ExpiresAt field
+	indexModel := mongo.IndexModel{
+		Keys: bson.D{{Key: "expires_at", Value: 1}},
+		Options: &options.IndexOptions{
+			ExpireAfterSeconds: new(int32), // Expire immediately after expires_at
+		},
+	}
+	if _, err := m.collection.Indexes().CreateOne(context.Background(), indexModel); err != nil {
+		return fmt.Errorf("failed to create TTL index: %w", err)
+	}
+
+	// Create compound index for efficient queries
+	compoundIndex := mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "user_id", Value: 1},
+			{Key: "issued_at", Value: 1},
+		},
+	}
+	if _, err := m.collection.Indexes().CreateOne(context.Background(), compoundIndex); err != nil {
+		return fmt.Errorf("failed to create compound index: %w", err)
+	}
+	return nil
+}
+
+func (m *JWTManager) Generate(ctx context.Context, userID string) (string, error) {
+	now := time.Now()
+	expiresAt := now.Add(m.tokenDuration)
 
 	claims := Claims{
 		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(m.tokenDuration)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			IssuedAt:  jwt.NewNumericDate(now),
 		},
 	}
 
@@ -69,10 +142,11 @@ func (m *JWTManager) Generate(userID string) (string, error) {
 	return token.SignedString([]byte(m.secretKey))
 }
 
-func (m *JWTManager) Validate(tokenStr string) (*Claims, error) {
+func (m *JWTManager) Validate(ctx context.Context, tokenStr string) (*Claims, error) {
+	var claims Claims
 	token, err := jwt.ParseWithClaims(
 		tokenStr,
-		&Claims{},
+		&claims,
 		func(token *jwt.Token) (interface{}, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected token signing method")
@@ -85,12 +159,69 @@ func (m *JWTManager) Validate(tokenStr string) (*Claims, error) {
 		return nil, fmt.Errorf("invalid token: %w", err)
 	}
 
-	claims, ok := token.Claims.(*Claims)
-	if !ok {
-		return nil, fmt.Errorf("invalid token claims")
+	if !token.Valid {
+		return nil, fmt.Errorf("invalid token")
 	}
 
-	return claims, nil
+	// Check if token is in invalid_tokens collection
+	filter := bson.M{
+		"user_id": claims.UserID,
+		"issued_at": bson.M{
+			"$lte": claims.IssuedAt.Time,
+		},
+	}
+
+	var invalidToken InvalidToken
+	err = m.collection.FindOne(ctx, filter).Decode(&invalidToken)
+
+	switch {
+	case err == nil:
+		// Found an invalidation record -> token is invalid
+		return nil, fmt.Errorf("token has been invalidated")
+	case err == mongo.ErrNoDocuments:
+		// No invalidation record found -> token is valid
+		return &claims, nil
+	default:
+		// Unexpected database error
+		return nil, fmt.Errorf("failed to verify token status: %w", err)
+	}
+}
+
+// InvalidateUserTokens invalidates all tokens for a user by creating a record with current timestamp
+func (m *JWTManager) InvalidateUserTokens(ctx context.Context, userID string) error {
+	now := time.Now()
+	expiresAt := now.Add(m.tokenDuration + BufferTimeForExpiration)
+
+	invalidToken := InvalidToken{
+		UserID:    userID,
+		IssuedAt:  now,
+		ExpiresAt: expiresAt,
+	}
+
+	_, err := m.collection.InsertOne(ctx, invalidToken)
+	if err != nil {
+		return fmt.Errorf("failed to invalidate tokens: %w", err)
+	}
+
+	return nil
+}
+
+// InvalidateTokensBefore invalidates all tokens issued before a specific time
+func (m *JWTManager) InvalidateTokensBefore(ctx context.Context, userID string, before time.Time) error {
+	expiresAt := before.Add(m.tokenDuration + BufferTimeForExpiration)
+
+	invalidToken := InvalidToken{
+		UserID:    userID,
+		IssuedAt:  before,
+		ExpiresAt: expiresAt,
+	}
+
+	_, err := m.collection.InsertOne(ctx, invalidToken)
+	if err != nil {
+		return fmt.Errorf("failed to invalidate tokens: %w", err)
+	}
+
+	return nil
 }
 
 func (m *JWTManager) Authorize(ctx context.Context, endpoint string, tokenParser tokenParserFn) (*Claims, error) {
@@ -103,7 +234,7 @@ func (m *JWTManager) Authorize(ctx context.Context, endpoint string, tokenParser
 		return nil, err
 	}
 
-	claims, err := m.Validate(accessToken)
+	claims, err := m.Validate(ctx, accessToken)
 	if err != nil {
 		//TODO: check error type. We might have a custom error type. Consider if it's necessary to introduce custom error type.
 		return nil, status.Errorf(codes.Unauthenticated, "access token is invalid: %v", err)

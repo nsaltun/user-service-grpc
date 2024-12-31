@@ -14,6 +14,14 @@ service AuthService {
             body: "*"
         };
     }
+
+    // Logout invalidates the current session
+    rpc Logout(LogoutRequest) returns (LogoutResponse) {
+        option (google.api.http) = {
+            post: "/v1/auth/logout"
+            body: "*"
+        };
+    }
 }
 
 // LoginRequest contains credentials for authentication
@@ -32,4 +40,15 @@ message LoginRequest {
 message LoginResponse {
     // access token to be used for protected endpoints
     string access_token = 1;
-} 
+}
+
+// LogoutRequest is used to logout a user
+message LogoutRequest {}
+
+// LogoutResponse is empty since we only use status codes
+//
+// Response status codes:
+// - OK (0): Successfully logged out
+// - UNAUTHENTICATED (16): Invalid or missing token
+// - INTERNAL (13): Server error
+message LogoutResponse {} 
