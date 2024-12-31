@@ -5,6 +5,7 @@ import (
 
 	"github.com/nsaltun/user-service-grpc/internal/service/auth"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/errwrap"
+	middleware "github.com/nsaltun/user-service-grpc/pkg/v1/middleware/grpc"
 	pb "github.com/nsaltun/user-service-grpc/proto/gen/go/core/user/v1"
 	"google.golang.org/grpc/codes"
 )
@@ -31,4 +32,18 @@ func (a *authAPI) Login(ctx context.Context, req *pb.LoginRequest) (*pb.LoginRes
 	}
 
 	return &pb.LoginResponse{AccessToken: accessToken}, nil
+}
+
+func (a *authAPI) Logout(ctx context.Context, req *pb.LogoutRequest) (*pb.LogoutResponse, error) {
+	// Get user ID from context using the typed key
+	userID, ok := ctx.Value(middleware.UserIDKey).(string)
+	if !ok || userID == "" {
+		return nil, errwrap.ErrUnauthenticated.SetMessage("unauthorized")
+	}
+
+	if err := a.service.Logout(ctx, userID); err != nil {
+		return nil, err
+	}
+
+	return &pb.LogoutResponse{}, nil
 }

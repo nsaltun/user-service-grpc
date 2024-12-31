@@ -43,7 +43,9 @@ Scalability Benefits:
 */
 
 const (
-	BufferTimeForExpiration = 5 * time.Minute
+	// BufferTimeForExpiration is the time buffer to add to the token expiration time
+	// to ensure that the token is not invalidated too early
+	BufferTimeForExpiration = 2 * time.Minute
 )
 
 // Claims represents the claims in a JWT token
@@ -55,9 +57,9 @@ type Claims struct {
 
 // InvalidToken represents an invalidated token in MongoDB
 type InvalidToken struct {
-	UserID    string    `bson:"user_id"`
-	IssuedAt  time.Time `bson:"issued_at"`
-	ExpiresAt time.Time `bson:"expires_at"` // Used for TTL index
+	UserID        string    `bson:"user_id"`
+	InvalidatedAt time.Time `bson:"invalidated_at"`
+	ExpiresAt     time.Time `bson:"expires_at"` // Used for TTL index
 }
 
 // JWTManager is a manager for JWT tokens
@@ -88,6 +90,7 @@ func NewJWTManager(mongoWrapper *mongohandler.MongoDBWrapper) *JWTManager {
 		"/core.user.v1.UserAPI/UpdateUserById": {"user"},
 		"/core.user.v1.UserAPI/DeleteUserById": {"user"},
 		"/core.user.v1.UserAPI/ListUsers":      {"user"},
+		"/core.user.v1.AuthService/Logout":     {"user"},
 	}
 
 	collection := mongoWrapper.Collection(vi.GetString("MONGODB_COLLECTION"))
@@ -163,11 +166,12 @@ func (m *JWTManager) Validate(ctx context.Context, tokenStr string) (*Claims, er
 		return nil, fmt.Errorf("invalid token")
 	}
 
-	// Check if token is in invalid_tokens collection
+	// Check if token is in invalid_tokens collection.
+	// We need to check if the token is in the collection because the token might be invalidated by another instance of the service.
 	filter := bson.M{
 		"user_id": claims.UserID,
-		"issued_at": bson.M{
-			"$lte": claims.IssuedAt.Time,
+		"invalidated_at": bson.M{
+			"$gte": claims.IssuedAt.Time,
 		},
 	}
 
@@ -190,12 +194,11 @@ func (m *JWTManager) Validate(ctx context.Context, tokenStr string) (*Claims, er
 // InvalidateUserTokens invalidates all tokens for a user by creating a record with current timestamp
 func (m *JWTManager) InvalidateUserTokens(ctx context.Context, userID string) error {
 	now := time.Now()
-	expiresAt := now.Add(m.tokenDuration + BufferTimeForExpiration)
 
 	invalidToken := InvalidToken{
-		UserID:    userID,
-		IssuedAt:  now,
-		ExpiresAt: expiresAt,
+		UserID:        userID,
+		InvalidatedAt: now,
+		ExpiresAt:     now.Add(m.tokenDuration + BufferTimeForExpiration),
 	}
 
 	_, err := m.collection.InsertOne(ctx, invalidToken)
@@ -208,12 +211,10 @@ func (m *JWTManager) InvalidateUserTokens(ctx context.Context, userID string) er
 
 // InvalidateTokensBefore invalidates all tokens issued before a specific time
 func (m *JWTManager) InvalidateTokensBefore(ctx context.Context, userID string, before time.Time) error {
-	expiresAt := before.Add(m.tokenDuration + BufferTimeForExpiration)
-
 	invalidToken := InvalidToken{
-		UserID:    userID,
-		IssuedAt:  before,
-		ExpiresAt: expiresAt,
+		UserID:        userID,
+		InvalidatedAt: before,
+		ExpiresAt:     before.Add(m.tokenDuration + BufferTimeForExpiration),
 	}
 
 	_, err := m.collection.InsertOne(ctx, invalidToken)

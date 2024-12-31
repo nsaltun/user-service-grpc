@@ -14,6 +14,14 @@ import (
 	"github.com/nsaltun/user-service-grpc/pkg/v1/auth"
 )
 
+// userIdContextKey is a custom type for context keys to avoid collisions
+type userIdContextKey string
+
+const (
+	// UserIDKey is the key used to store the user ID in the context
+	UserIDKey userIdContextKey = "user_id"
+)
+
 func AuthInterceptor(jwtManager *auth.JWTManager) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		claims, err := jwtManager.Authorize(ctx, info.FullMethod, tokenParser)
@@ -34,8 +42,8 @@ func AuthInterceptor(jwtManager *auth.JWTManager) grpc.UnaryServerInterceptor {
 		}
 
 		if claims != nil {
-			// Add claims to context
-			ctx = context.WithValue(ctx, "user_id", claims.UserID)
+			// Add claims to context using the typed key
+			ctx = context.WithValue(ctx, UserIDKey, claims.UserID)
 		}
 
 		return handler(ctx, req)

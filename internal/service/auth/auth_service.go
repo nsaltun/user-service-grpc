@@ -12,6 +12,7 @@ import (
 
 type AuthService interface {
 	Login(ctx context.Context, email, password string) (string, error)
+	Logout(ctx context.Context, userID string) error
 }
 
 type auth_service struct {
@@ -46,4 +47,11 @@ func (s *auth_service) Login(ctx context.Context, email, password string) (strin
 	}
 
 	return token, nil
+}
+
+func (s *auth_service) Logout(ctx context.Context, userID string) error {
+	if err := s.jwtManager.InvalidateUserTokens(ctx, userID); err != nil {
+		return errwrap.ErrInternal.SetMessage("failed to invalidate tokens").SetOriginError(err)
+	}
+	return nil
 }
