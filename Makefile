@@ -1,5 +1,5 @@
 run:
-	go run cmd/main.go
+	go run -exec "env $$(cat .env | xargs)" cmd/main.go
 
 bufgen:
 	cd proto && rm -rf gen && buf generate

@@ -3,7 +3,13 @@ package auth
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
+
+	"crypto/ecdsa"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/db/mongohandler"
@@ -65,11 +71,13 @@ type InvalidToken struct {
 // JWTManager is a manager for JWT tokens
 type JWTManager struct {
 	stack.AbstractProvider
-	authEnabled    bool
-	secretKey      string
-	tokenDuration  time.Duration
-	protectedRoles map[string][]string
-	collection     *mongo.Collection
+	authEnabled      bool
+	privateKeyBase64 string
+	privateKey       *ecdsa.PrivateKey
+	publicKey        *ecdsa.PublicKey
+	tokenDuration    time.Duration
+	protectedRoles   map[string][]string
+	collection       *mongo.Collection
 }
 
 // tokenParserFn is a function type for parsing tokens
@@ -80,8 +88,8 @@ func NewJWTManager(mongoWrapper *mongohandler.MongoDBWrapper) *JWTManager {
 	vi := viper.New()
 	vi.AutomaticEnv()
 
-	vi.SetDefault("JWT_SECRET_KEY", "secret")
 	vi.SetDefault("JWT_TOKEN_DURATION", "15m")
+	vi.SetDefault("JWT_PRIVATE_KEY", "")
 	vi.SetDefault("JWT_AUTH_ENABLED", "true")
 	vi.SetDefault("MONGODB_COLLECTION", "invalid_tokens")
 
@@ -96,15 +104,20 @@ func NewJWTManager(mongoWrapper *mongohandler.MongoDBWrapper) *JWTManager {
 	collection := mongoWrapper.Collection(vi.GetString("MONGODB_COLLECTION"))
 
 	return &JWTManager{
-		secretKey:      vi.GetString("JWT_SECRET_KEY"),
-		tokenDuration:  vi.GetDuration("JWT_TOKEN_DURATION"),
-		protectedRoles: protectedEndpoints,
-		authEnabled:    vi.GetBool("JWT_AUTH_ENABLED"),
-		collection:     collection,
+		privateKeyBase64: vi.GetString("JWT_PRIVATE_KEY"),
+		tokenDuration:    vi.GetDuration("JWT_TOKEN_DURATION"),
+		protectedRoles:   protectedEndpoints,
+		authEnabled:      vi.GetBool("JWT_AUTH_ENABLED"),
+		collection:       collection,
 	}
 }
 
 func (m *JWTManager) Init() error {
+	err := m.setKeys()
+	if err != nil {
+		return err
+	}
+
 	// Create TTL index on ExpiresAt field
 	indexModel := mongo.IndexModel{
 		Keys: bson.D{{Key: "expires_at", Value: 1}},
@@ -126,6 +139,52 @@ func (m *JWTManager) Init() error {
 	if _, err := m.collection.Indexes().CreateOne(context.Background(), compoundIndex); err != nil {
 		return fmt.Errorf("failed to create compound index: %w", err)
 	}
+
+	return nil
+}
+
+func (m *JWTManager) setKeys() error {
+	if !m.authEnabled {
+		return nil
+	}
+
+	// Read base64 encoded private key from environment variable
+	if m.privateKeyBase64 == "" {
+		return fmt.Errorf("JWT_PRIVATE_KEY environment variable is not set")
+	}
+
+	privateKeyPEM, err := base64.StdEncoding.DecodeString(m.privateKeyBase64)
+	if err != nil {
+		return fmt.Errorf("failed to decode base64 private key: %w", err)
+	}
+
+	// Add debug logging to check PEM content
+	if len(privateKeyPEM) == 0 {
+		return fmt.Errorf("decoded PEM is empty")
+	}
+
+	// Clean up the private key string by removing quotes and replacing escaped newlines
+	cleanKey := strings.Trim(string(privateKeyPEM), "\"")
+	cleanKey = strings.ReplaceAll(cleanKey, "\\n", "\n")
+
+	// Parse private key directly since it's already in PEM format
+	block, _ := pem.Decode([]byte(cleanKey))
+	if block == nil {
+		return fmt.Errorf("failed to decode PEM block: invalid PEM format")
+	}
+
+	// Verify it's an EC PRIVATE KEY
+	if block.Type != "EC PRIVATE KEY" {
+		return fmt.Errorf("expected EC PRIVATE KEY but got %s", block.Type)
+	}
+
+	privateKey, err := x509.ParseECPrivateKey(block.Bytes)
+	if err != nil {
+		return fmt.Errorf("failed to parse private key: %w", err)
+	}
+
+	m.privateKey = privateKey
+	m.publicKey = &privateKey.PublicKey
 	return nil
 }
 
@@ -141,8 +200,8 @@ func (m *JWTManager) Generate(ctx context.Context, userID string) (string, error
 		},
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(m.secretKey))
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	return token.SignedString(m.privateKey)
 }
 
 func (m *JWTManager) Validate(ctx context.Context, tokenStr string) (*Claims, error) {
@@ -151,10 +210,10 @@ func (m *JWTManager) Validate(ctx context.Context, tokenStr string) (*Claims, er
 		tokenStr,
 		&claims,
 		func(token *jwt.Token) (interface{}, error) {
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			if _, ok := token.Method.(*jwt.SigningMethodECDSA); !ok {
 				return nil, fmt.Errorf("unexpected token signing method")
 			}
-			return []byte(m.secretKey), nil
+			return m.publicKey, nil
 		},
 	)
 
