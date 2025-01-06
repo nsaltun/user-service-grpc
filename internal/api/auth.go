@@ -26,12 +26,33 @@ func (a *authAPI) Login(ctx context.Context, req *pb.LoginRequest) (*pb.LoginRes
 			SetGrpcCode(codes.InvalidArgument)
 	}
 
-	accessToken, err := a.service.Login(ctx, req.GetEmail(), req.GetPassword())
+	accessToken, refreshToken, err := a.service.Login(ctx, req.GetEmail(), req.GetPassword())
 	if err != nil {
 		return nil, err
 	}
 
-	return &pb.LoginResponse{AccessToken: accessToken}, nil
+	return &pb.LoginResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+	}, nil
+}
+
+func (a *authAPI) Refresh(ctx context.Context, req *pb.RefreshRequest) (*pb.RefreshResponse, error) {
+	// Input validation
+	if req.GetRefreshToken() == "" {
+		return nil, errwrap.NewError("refresh token is required", codes.InvalidArgument.String()).
+			SetGrpcCode(codes.InvalidArgument)
+	}
+
+	accessToken, refreshToken, err := a.service.Refresh(ctx, req.GetRefreshToken())
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.RefreshResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+	}, nil
 }
 
 func (a *authAPI) Logout(ctx context.Context, req *pb.LogoutRequest) (*pb.LogoutResponse, error) {

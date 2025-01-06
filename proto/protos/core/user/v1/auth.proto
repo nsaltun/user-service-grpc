@@ -15,6 +15,14 @@ service AuthService {
         };
     }
 
+    // Refresh generates new access token using refresh token
+    rpc Refresh(RefreshRequest) returns (RefreshResponse) {
+        option (google.api.http) = {
+            post: "/v1/auth/refresh"
+            body: "*"
+        };
+    }
+
     // Logout invalidates the current session
     rpc Logout(LogoutRequest) returns (LogoutResponse) {
         option (google.api.http) = {
@@ -30,16 +38,24 @@ message LoginRequest {
     string password = 2 [(google.api.field_behavior) = REQUIRED];
 }
 
-// LoginResponse is empty since we only use status codes
-//
-// Response status codes:
-// - OK (0): Successfully logged in
-// - UNAUTHENTICATED (16): Invalid credentials
-// - NOT_FOUND (5): User not found
-// - INTERNAL (13): Server error
+// LoginResponse contains the tokens after successful authentication
 message LoginResponse {
     // access token to be used for protected endpoints
     string access_token = 1;
+    // refresh token to be used for getting new access tokens
+    string refresh_token = 2;
+}
+
+// RefreshRequest contains the refresh token
+message RefreshRequest {
+    string refresh_token = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+// RefreshResponse contains the new access token
+message RefreshResponse {
+    string access_token = 1;
+    // New refresh token is returned if refresh token rotation is enabled
+    string refresh_token = 2;
 }
 
 // LogoutRequest is used to logout a user

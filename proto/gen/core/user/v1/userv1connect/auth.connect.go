@@ -35,21 +35,26 @@ const (
 const (
 	// AuthServiceLoginProcedure is the fully-qualified name of the AuthService's Login RPC.
 	AuthServiceLoginProcedure = "/core.user.v1.AuthService/Login"
+	// AuthServiceRefreshProcedure is the fully-qualified name of the AuthService's Refresh RPC.
+	AuthServiceRefreshProcedure = "/core.user.v1.AuthService/Refresh"
 	// AuthServiceLogoutProcedure is the fully-qualified name of the AuthService's Logout RPC.
 	AuthServiceLogoutProcedure = "/core.user.v1.AuthService/Logout"
 )
 
 // These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
 var (
-	authServiceServiceDescriptor      = v1.File_core_user_v1_auth_proto.Services().ByName("AuthService")
-	authServiceLoginMethodDescriptor  = authServiceServiceDescriptor.Methods().ByName("Login")
-	authServiceLogoutMethodDescriptor = authServiceServiceDescriptor.Methods().ByName("Logout")
+	authServiceServiceDescriptor       = v1.File_core_user_v1_auth_proto.Services().ByName("AuthService")
+	authServiceLoginMethodDescriptor   = authServiceServiceDescriptor.Methods().ByName("Login")
+	authServiceRefreshMethodDescriptor = authServiceServiceDescriptor.Methods().ByName("Refresh")
+	authServiceLogoutMethodDescriptor  = authServiceServiceDescriptor.Methods().ByName("Logout")
 )
 
 // AuthServiceClient is a client for the core.user.v1.AuthService service.
 type AuthServiceClient interface {
 	// Login authenticates a user with email and password
 	Login(context.Context, *connect.Request[v1.LoginRequest]) (*connect.Response[v1.LoginResponse], error)
+	// Refresh generates new access token using refresh token
+	Refresh(context.Context, *connect.Request[v1.RefreshRequest]) (*connect.Response[v1.RefreshResponse], error)
 	// Logout invalidates the current session
 	Logout(context.Context, *connect.Request[v1.LogoutRequest]) (*connect.Response[v1.LogoutResponse], error)
 }
@@ -70,6 +75,12 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(authServiceLoginMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
+		refresh: connect.NewClient[v1.RefreshRequest, v1.RefreshResponse](
+			httpClient,
+			baseURL+AuthServiceRefreshProcedure,
+			connect.WithSchema(authServiceRefreshMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
 		logout: connect.NewClient[v1.LogoutRequest, v1.LogoutResponse](
 			httpClient,
 			baseURL+AuthServiceLogoutProcedure,
@@ -81,13 +92,19 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 
 // authServiceClient implements AuthServiceClient.
 type authServiceClient struct {
-	login  *connect.Client[v1.LoginRequest, v1.LoginResponse]
-	logout *connect.Client[v1.LogoutRequest, v1.LogoutResponse]
+	login   *connect.Client[v1.LoginRequest, v1.LoginResponse]
+	refresh *connect.Client[v1.RefreshRequest, v1.RefreshResponse]
+	logout  *connect.Client[v1.LogoutRequest, v1.LogoutResponse]
 }
 
 // Login calls core.user.v1.AuthService.Login.
 func (c *authServiceClient) Login(ctx context.Context, req *connect.Request[v1.LoginRequest]) (*connect.Response[v1.LoginResponse], error) {
 	return c.login.CallUnary(ctx, req)
+}
+
+// Refresh calls core.user.v1.AuthService.Refresh.
+func (c *authServiceClient) Refresh(ctx context.Context, req *connect.Request[v1.RefreshRequest]) (*connect.Response[v1.RefreshResponse], error) {
+	return c.refresh.CallUnary(ctx, req)
 }
 
 // Logout calls core.user.v1.AuthService.Logout.
@@ -99,6 +116,8 @@ func (c *authServiceClient) Logout(ctx context.Context, req *connect.Request[v1.
 type AuthServiceHandler interface {
 	// Login authenticates a user with email and password
 	Login(context.Context, *connect.Request[v1.LoginRequest]) (*connect.Response[v1.LoginResponse], error)
+	// Refresh generates new access token using refresh token
+	Refresh(context.Context, *connect.Request[v1.RefreshRequest]) (*connect.Response[v1.RefreshResponse], error)
 	// Logout invalidates the current session
 	Logout(context.Context, *connect.Request[v1.LogoutRequest]) (*connect.Response[v1.LogoutResponse], error)
 }
@@ -115,6 +134,12 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(authServiceLoginMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
+	authServiceRefreshHandler := connect.NewUnaryHandler(
+		AuthServiceRefreshProcedure,
+		svc.Refresh,
+		connect.WithSchema(authServiceRefreshMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
 	authServiceLogoutHandler := connect.NewUnaryHandler(
 		AuthServiceLogoutProcedure,
 		svc.Logout,
@@ -125,6 +150,8 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		switch r.URL.Path {
 		case AuthServiceLoginProcedure:
 			authServiceLoginHandler.ServeHTTP(w, r)
+		case AuthServiceRefreshProcedure:
+			authServiceRefreshHandler.ServeHTTP(w, r)
 		case AuthServiceLogoutProcedure:
 			authServiceLogoutHandler.ServeHTTP(w, r)
 		default:
@@ -138,6 +165,10 @@ type UnimplementedAuthServiceHandler struct{}
 
 func (UnimplementedAuthServiceHandler) Login(context.Context, *connect.Request[v1.LoginRequest]) (*connect.Response[v1.LoginResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("core.user.v1.AuthService.Login is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) Refresh(context.Context, *connect.Request[v1.RefreshRequest]) (*connect.Response[v1.RefreshResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("core.user.v1.AuthService.Refresh is not implemented"))
 }
 
 func (UnimplementedAuthServiceHandler) Logout(context.Context, *connect.Request[v1.LogoutRequest]) (*connect.Response[v1.LogoutResponse], error) {

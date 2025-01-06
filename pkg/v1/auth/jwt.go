@@ -2,16 +2,18 @@ package auth
 
 import (
 	"context"
-	"fmt"
-	"strings"
-	"time"
-
 	"crypto/ecdsa"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"fmt"
+	"strings"
+	"time"
+
+	"golang.org/x/exp/maps"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/db/mongohandler"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/stack"
 	"github.com/spf13/viper"
@@ -22,77 +24,97 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-/*
-JWT System Overview
-------------------
-This implements a stateless JWT system with the following features:
-
-Storage:
-- Only stores invalidation records
-- Automatic cleanup using MongoDB TTL index
-- Efficient queries via compound indexes
-
-Invalidation Strategies:
-1. InvalidateUserTokens
-   - Invalidates all tokens for a user
-   - Used for logout scenarios
-
-2. InvalidateTokensBefore
-   - Invalidates tokens before a specific time
-   - Enables selective invalidation
-
-Scalability Benefits:
-- Minimal storage overhead (only tracks invalid tokens)
-- Automatic cleanup of expired records
-- No need to track valid tokens
-- Works seamlessly across multiple service instances
-*/
-
+// Package level constants
 const (
-	// BufferTimeForExpiration is the time buffer to add to the token expiration time
-	// to ensure that the token is not invalidated too early
+	// BufferTimeForExpiration is added to token expiration time to ensure proper cleanup
 	BufferTimeForExpiration = 2 * time.Minute
+
+	// Token types
+	TokenTypeAccess  = "access"
+	TokenTypeRefresh = "refresh"
+
+	// Default configuration keys
+	configKeyAccessDuration  = "JWT_ACCESS_TOKEN_DURATION"
+	configKeyRefreshDuration = "JWT_REFRESH_TOKEN_DURATION"
+	configKeyPrivateKey      = "JWT_PRIVATE_KEY"
+	configKeyAuthEnabled     = "JWT_AUTH_ENABLED"
+	configKeyCollection      = "MONGODB_COLLECTION"
+
+	// Default duration values
+	defaultAccessDuration  = "30s"  // 15 minutes
+	defaultRefreshDuration = "168h" // 7 days
 )
 
-// Claims represents the claims in a JWT token
+// Claims extends jwt.RegisteredClaims with custom fields for our JWT implementation
 type Claims struct {
+	// UserID uniquely identifies the token owner
 	UserID string `json:"user_id"`
-	// IAT is automatically included from RegisteredClaims
+
+	// TokenType specifies whether this is an access or refresh token
+	TokenType string `json:"token_type"`
+
+	// DeviceID tracks which device issued the token (used for refresh tokens)
+	DeviceID string `json:"device_id,omitempty"`
+
+	// Embed standard JWT claims (exp, iat, etc)
 	jwt.RegisteredClaims
 }
 
-// InvalidToken represents an invalidated token in MongoDB
-type InvalidToken struct {
-	UserID        string    `bson:"user_id"`
+// UserInvalidatedToken represents a revoked token in the MongoDB collection
+type UserInvalidatedToken struct {
+	// UserID of the token owner
+	UserID string `bson:"user_id"`
+
+	// DeviceID that issued the token (if applicable)
+	DeviceID string `bson:"device_id,omitempty"`
+
+	// TokenType distinguishes between access and refresh tokens
+	TokenType string `bson:"token_type"`
+
+	// InvalidatedAt tracks when the token was invalidated
 	InvalidatedAt time.Time `bson:"invalidated_at"`
-	ExpiresAt     time.Time `bson:"expires_at"` // Used for TTL index
+
+	// ExpiresAt is used by MongoDB's TTL index for automatic cleanup
+	ExpiresAt time.Time `bson:"expires_at"`
 }
 
-// JWTManager is a manager for JWT tokens
+// JWTManager handles JWT token operations including generation, validation, and revocation
 type JWTManager struct {
 	stack.AbstractProvider
+
+	// Configuration
 	authEnabled      bool
 	privateKeyBase64 string
 	privateKey       *ecdsa.PrivateKey
 	publicKey        *ecdsa.PublicKey
-	tokenDuration    time.Duration
-	protectedRoles   map[string][]string
-	collection       *mongo.Collection
+
+	// Token settings
+	accessTokenDuration  time.Duration
+	refreshTokenDuration time.Duration
+
+	// Access control
+	protectedRoles map[string][]string
+
+	// Storage
+	collection *mongo.Collection
 }
 
-// tokenParserFn is a function type for parsing tokens
+// tokenParserFn defines a function type for extracting tokens from context
 type tokenParserFn func(ctx context.Context) (string, error)
 
-// NewJWTManager creates a new JWTManager
+// NewJWTManager creates and configures a new JWTManager instance
 func NewJWTManager(mongoWrapper *mongohandler.MongoDBWrapper) *JWTManager {
 	vi := viper.New()
 	vi.AutomaticEnv()
 
-	vi.SetDefault("JWT_TOKEN_DURATION", "15m")
-	vi.SetDefault("JWT_PRIVATE_KEY", "")
-	vi.SetDefault("JWT_AUTH_ENABLED", "true")
-	vi.SetDefault("MONGODB_COLLECTION", "invalid_tokens")
+	// Set default configuration values
+	vi.SetDefault(configKeyAccessDuration, defaultAccessDuration)
+	vi.SetDefault(configKeyRefreshDuration, defaultRefreshDuration)
+	vi.SetDefault(configKeyPrivateKey, "")
+	vi.SetDefault(configKeyAuthEnabled, "true")
+	vi.SetDefault(configKeyCollection, "user_invalidated_tokens")
 
+	// Define protected endpoints and their required roles
 	protectedEndpoints := map[string][]string{
 		"/core.user.v1.UserAPI/CreateUser":     {"user"},
 		"/core.user.v1.UserAPI/UpdateUserById": {"user"},
@@ -101,102 +123,137 @@ func NewJWTManager(mongoWrapper *mongohandler.MongoDBWrapper) *JWTManager {
 		"/core.user.v1.AuthService/Logout":     {"user"},
 	}
 
-	collection := mongoWrapper.Collection(vi.GetString("MONGODB_COLLECTION"))
+	collection := mongoWrapper.Collection(vi.GetString(configKeyCollection))
 
 	return &JWTManager{
-		privateKeyBase64: vi.GetString("JWT_PRIVATE_KEY"),
-		tokenDuration:    vi.GetDuration("JWT_TOKEN_DURATION"),
-		protectedRoles:   protectedEndpoints,
-		authEnabled:      vi.GetBool("JWT_AUTH_ENABLED"),
-		collection:       collection,
+		privateKeyBase64:     vi.GetString(configKeyPrivateKey),
+		accessTokenDuration:  vi.GetDuration(configKeyAccessDuration),
+		refreshTokenDuration: vi.GetDuration(configKeyRefreshDuration),
+		protectedRoles:       protectedEndpoints,
+		authEnabled:          vi.GetBool(configKeyAuthEnabled),
+		collection:           collection,
 	}
 }
 
+// Init initializes the JWT manager by setting up encryption keys and database indexes
 func (m *JWTManager) Init() error {
-	err := m.setKeys()
-	if err != nil {
-		return err
+	// Initialize encryption keys
+	if err := m.setKeys(); err != nil {
+		return fmt.Errorf("failed to initialize encryption keys: %w", err)
 	}
 
-	// Create TTL index on ExpiresAt field
-	indexModel := mongo.IndexModel{
+	// Create MongoDB indexes
+	if err := m.createIndexes(); err != nil {
+		return fmt.Errorf("failed to create MongoDB indexes: %w", err)
+	}
+
+	return nil
+}
+
+// createIndexes sets up the required MongoDB indexes for token management
+func (m *JWTManager) createIndexes() error {
+	// Create TTL index for automatic token cleanup
+	ttlIndex := mongo.IndexModel{
 		Keys: bson.D{{Key: "expires_at", Value: 1}},
 		Options: &options.IndexOptions{
 			ExpireAfterSeconds: new(int32), // Expire immediately after expires_at
 		},
 	}
-	if _, err := m.collection.Indexes().CreateOne(context.Background(), indexModel); err != nil {
+	if _, err := m.collection.Indexes().CreateOne(context.Background(), ttlIndex); err != nil {
 		return fmt.Errorf("failed to create TTL index: %w", err)
 	}
 
-	// Create compound index for efficient queries
-	compoundIndex := mongo.IndexModel{
+	// Create compound index for efficient token queries
+	queryIndex := mongo.IndexModel{
 		Keys: bson.D{
 			{Key: "user_id", Value: 1},
-			{Key: "issued_at", Value: 1},
+			{Key: "invalidated_at", Value: 1},
 		},
 	}
-	if _, err := m.collection.Indexes().CreateOne(context.Background(), compoundIndex); err != nil {
-		return fmt.Errorf("failed to create compound index: %w", err)
+	if _, err := m.collection.Indexes().CreateOne(context.Background(), queryIndex); err != nil {
+		return fmt.Errorf("failed to create query index: %w", err)
 	}
 
 	return nil
 }
 
+// setKeys initializes the ECDSA key pair for token signing and verification
 func (m *JWTManager) setKeys() error {
+	// Skip if authentication is disabled
 	if !m.authEnabled {
 		return nil
 	}
 
-	// Read base64 encoded private key from environment variable
+	// Validate private key configuration
 	if m.privateKeyBase64 == "" {
 		return fmt.Errorf("JWT_PRIVATE_KEY environment variable is not set")
 	}
 
+	// Decode base64 private key
 	privateKeyPEM, err := base64.StdEncoding.DecodeString(m.privateKeyBase64)
 	if err != nil {
 		return fmt.Errorf("failed to decode base64 private key: %w", err)
 	}
 
-	// Add debug logging to check PEM content
 	if len(privateKeyPEM) == 0 {
 		return fmt.Errorf("decoded PEM is empty")
 	}
 
-	// Clean up the private key string by removing quotes and replacing escaped newlines
+	// Clean and normalize the key string
 	cleanKey := strings.Trim(string(privateKeyPEM), "\"")
 	cleanKey = strings.ReplaceAll(cleanKey, "\\n", "\n")
 
-	// Parse private key directly since it's already in PEM format
+	// Parse the PEM block
 	block, _ := pem.Decode([]byte(cleanKey))
 	if block == nil {
 		return fmt.Errorf("failed to decode PEM block: invalid PEM format")
 	}
 
-	// Verify it's an EC PRIVATE KEY
+	// Verify key type
 	if block.Type != "EC PRIVATE KEY" {
 		return fmt.Errorf("expected EC PRIVATE KEY but got %s", block.Type)
 	}
 
+	// Parse the ECDSA private key
 	privateKey, err := x509.ParseECPrivateKey(block.Bytes)
 	if err != nil {
 		return fmt.Errorf("failed to parse private key: %w", err)
 	}
 
+	// Store both private and public keys
 	m.privateKey = privateKey
 	m.publicKey = &privateKey.PublicKey
 	return nil
 }
 
-func (m *JWTManager) Generate(ctx context.Context, userID string) (string, error) {
+// GenerateTokenPair creates a new pair of access and refresh tokens for a user
+func (m *JWTManager) GenerateTokenPair(ctx context.Context, userID string, deviceID string) (accessToken string, refreshToken string, err error) {
 	now := time.Now()
-	expiresAt := now.Add(m.tokenDuration)
 
+	// Generate access token first
+	accessToken, err = m.generateAccessToken(userID, now)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate access token: %w", err)
+	}
+
+	// Generate refresh token
+	refreshToken, err = m.generateRefreshToken(userID, deviceID, now)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate refresh token: %w", err)
+	}
+
+	return accessToken, refreshToken, nil
+}
+
+// generateAccessToken creates a new access token for the given user
+func (m *JWTManager) generateAccessToken(userID string, now time.Time) (string, error) {
 	claims := Claims{
-		UserID: userID,
+		UserID:    userID,
+		TokenType: TokenTypeAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			ExpiresAt: jwt.NewNumericDate(now.Add(m.accessTokenDuration)),
 			IssuedAt:  jwt.NewNumericDate(now),
+			Audience:  jwt.ClaimStrings(maps.Keys(m.protectedRoles)),
 		},
 	}
 
@@ -204,8 +261,125 @@ func (m *JWTManager) Generate(ctx context.Context, userID string) (string, error
 	return token.SignedString(m.privateKey)
 }
 
+// generateRefreshToken creates a new refresh token for the given user and device
+func (m *JWTManager) generateRefreshToken(userID string, deviceID string, now time.Time) (string, error) {
+	claims := Claims{
+		UserID:    userID,
+		TokenType: TokenTypeRefresh,
+		DeviceID:  deviceID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(m.refreshTokenDuration)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ID:        uuid.New().String(),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	return token.SignedString(m.privateKey)
+}
+
+// Validate verifies the validity of an access token and returns its claims
 func (m *JWTManager) Validate(ctx context.Context, tokenStr string) (*Claims, error) {
 	var claims Claims
+
+	// Parse and verify the token signature
+	token, err := jwt.ParseWithClaims(
+		tokenStr,
+		&claims,
+		func(token *jwt.Token) (interface{}, error) {
+			// Verify the signing method
+			if _, ok := token.Method.(*jwt.SigningMethodECDSA); !ok {
+				return nil, fmt.Errorf("unexpected token signing method")
+			}
+			return m.publicKey, nil
+		},
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("invalid token: %w", err)
+	}
+
+	if !token.Valid {
+		return nil, fmt.Errorf("invalid token")
+	}
+
+	// Verify token type
+	if claims.TokenType == "" {
+		return nil, fmt.Errorf("token type not specified")
+	}
+	if claims.TokenType != TokenTypeAccess {
+		return nil, fmt.Errorf("invalid token type: expected access token")
+	}
+
+	// Check if token has been invalidated
+	filter := bson.M{
+		"$or": []bson.M{
+			// Check user-wide invalidation
+			{
+				"user_id":        claims.UserID,
+				"token_type":     TokenTypeAccess,
+				"invalidated_at": bson.M{"$gte": claims.IssuedAt.Time},
+			},
+			// Check device-specific invalidation
+			{
+				"user_id":        claims.UserID,
+				"device_id":      claims.DeviceID,
+				"token_type":     TokenTypeAccess,
+				"invalidated_at": bson.M{"$gte": claims.IssuedAt.Time},
+			},
+		},
+	}
+
+	var invalidToken UserInvalidatedToken
+	err = m.collection.FindOne(ctx, filter).Decode(&invalidToken)
+
+	switch {
+	case err == nil:
+		return nil, fmt.Errorf("token has been invalidated")
+	case err == mongo.ErrNoDocuments:
+		// No invalidation record found -> token is valid
+		return &claims, nil
+	default:
+		return nil, fmt.Errorf("failed to verify token status: %w", err)
+	}
+}
+
+// RefreshTokens validates a refresh token and generates a new token pair
+func (m *JWTManager) RefreshTokens(ctx context.Context, refreshToken string) (accessToken string, newRefreshToken string, err error) {
+	// Validate the refresh token
+	claims, err := m.validateRefreshToken(ctx, refreshToken)
+	if err != nil {
+		return "", "", fmt.Errorf("refresh token validation failed: %w", err)
+	}
+
+	now := time.Now()
+
+	// Generate new access token
+	accessToken, err = m.generateAccessToken(claims.UserID, now)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate new access token: %w", err)
+	}
+
+	// Generate new refresh token
+	newRefreshToken, err = m.generateRefreshToken(claims.UserID, claims.DeviceID, now)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate new refresh token: %w", err)
+	}
+
+	// Invalidate the old refresh token
+	invalidatedAt := now.Add(-time.Second)
+	if err = m.InvalidateToken(ctx, claims.UserID, claims.DeviceID, TokenTypeRefresh, invalidatedAt); err != nil {
+		return "", "", fmt.Errorf("failed to invalidate old refresh token: %w", err)
+	}
+
+	return accessToken, newRefreshToken, nil
+}
+
+// validateRefreshToken verifies a refresh token's validity and returns its claims
+func (m *JWTManager) validateRefreshToken(ctx context.Context, tokenStr string) (*Claims, error) {
+	var claims Claims
+
+	// Parse and verify the token signature
 	token, err := jwt.ParseWithClaims(
 		tokenStr,
 		&claims,
@@ -225,55 +399,77 @@ func (m *JWTManager) Validate(ctx context.Context, tokenStr string) (*Claims, er
 		return nil, fmt.Errorf("invalid token")
 	}
 
-	// Check if token is in invalid_tokens collection.
-	// We need to check if the token is in the collection because the token might be invalidated by another instance of the service.
+	// Verify token type
+	if claims.TokenType != TokenTypeRefresh {
+		return nil, fmt.Errorf("invalid token type: expected refresh token")
+	}
+
+	// Check if token has been invalidated before issued at time.
 	filter := bson.M{
-		"user_id": claims.UserID,
-		"invalidated_at": bson.M{
-			"$gte": claims.IssuedAt.Time,
+		"$or": []bson.M{
+			{
+				"user_id":    claims.UserID,
+				"token_type": TokenTypeRefresh,
+				"invalidated_at": bson.M{
+					"$gte": claims.IssuedAt.Time,
+				},
+			},
+			{
+				"user_id":    claims.UserID,
+				"token_type": TokenTypeRefresh,
+				"invalidated_at": bson.M{
+					"$gte": claims.IssuedAt.Time,
+				},
+				"device_id": claims.DeviceID,
+			},
 		},
 	}
 
-	var invalidToken InvalidToken
+	var invalidToken UserInvalidatedToken
 	err = m.collection.FindOne(ctx, filter).Decode(&invalidToken)
-
-	switch {
-	case err == nil:
-		// Found an invalidation record -> token is invalid
-		return nil, fmt.Errorf("token has been invalidated")
-	case err == mongo.ErrNoDocuments:
-		// No invalidation record found -> token is valid
-		return &claims, nil
-	default:
-		// Unexpected database error
+	if err == nil {
+		return nil, fmt.Errorf("refresh token has been invalidated")
+	} else if err != mongo.ErrNoDocuments {
 		return nil, fmt.Errorf("failed to verify token status: %w", err)
 	}
+
+	return &claims, nil
 }
 
-// InvalidateUserTokens invalidates all tokens for a user by creating a record with current timestamp
+// InvalidateUserTokens revokes all tokens for a specific user
 func (m *JWTManager) InvalidateUserTokens(ctx context.Context, userID string) error {
 	now := time.Now()
 
-	invalidToken := InvalidToken{
-		UserID:        userID,
-		InvalidatedAt: now,
-		ExpiresAt:     now.Add(m.tokenDuration + BufferTimeForExpiration),
+	// Create invalidation records for both token types
+	invalidations := []interface{}{
+		UserInvalidatedToken{
+			UserID:        userID,
+			TokenType:     TokenTypeAccess,
+			InvalidatedAt: now,
+			ExpiresAt:     now.Add(m.accessTokenDuration + BufferTimeForExpiration),
+		},
+		UserInvalidatedToken{
+			UserID:        userID,
+			TokenType:     TokenTypeRefresh,
+			InvalidatedAt: now,
+			ExpiresAt:     now.Add(m.refreshTokenDuration + BufferTimeForExpiration),
+		},
 	}
 
-	_, err := m.collection.InsertOne(ctx, invalidToken)
+	_, err := m.collection.InsertMany(ctx, invalidations)
 	if err != nil {
-		return fmt.Errorf("failed to invalidate tokens: %w", err)
+		return fmt.Errorf("failed to invalidate user tokens: %w", err)
 	}
 
 	return nil
 }
 
-// InvalidateTokensBefore invalidates all tokens issued before a specific time
+// InvalidateTokensBefore revokes all tokens issued before a specific time
 func (m *JWTManager) InvalidateTokensBefore(ctx context.Context, userID string, before time.Time) error {
-	invalidToken := InvalidToken{
+	invalidToken := UserInvalidatedToken{
 		UserID:        userID,
 		InvalidatedAt: before,
-		ExpiresAt:     before.Add(m.tokenDuration + BufferTimeForExpiration),
+		ExpiresAt:     before.Add(m.accessTokenDuration + BufferTimeForExpiration),
 	}
 
 	_, err := m.collection.InsertOne(ctx, invalidToken)
@@ -284,31 +480,78 @@ func (m *JWTManager) InvalidateTokensBefore(ctx context.Context, userID string, 
 	return nil
 }
 
+// InvalidateToken revokes a specific token
+func (m *JWTManager) InvalidateToken(ctx context.Context, userID, deviceID, tokenType string, invalidatedAt time.Time) error {
+	expiryDuration := m.accessTokenDuration
+
+	// Set expiry duration based on token type
+	if tokenType == TokenTypeRefresh {
+		expiryDuration = m.refreshTokenDuration
+	}
+
+	invalidToken := UserInvalidatedToken{
+		UserID:        userID,
+		DeviceID:      deviceID,
+		TokenType:     tokenType,
+		InvalidatedAt: invalidatedAt,
+		ExpiresAt:     invalidatedAt.Add(expiryDuration + BufferTimeForExpiration),
+	}
+
+	_, err := m.collection.InsertOne(ctx, invalidToken)
+	if err != nil {
+		return fmt.Errorf("failed to invalidate token: %w", err)
+	}
+
+	return nil
+}
+
+// InvalidateByDeviceID revokes all tokens for a specific device
+func (m *JWTManager) InvalidateByDeviceID(ctx context.Context, userID string, deviceID string) error {
+	now := time.Now()
+
+	invalidToken := UserInvalidatedToken{
+		UserID:        userID,
+		DeviceID:      deviceID,
+		InvalidatedAt: now,
+		ExpiresAt:     now.Add(m.refreshTokenDuration + BufferTimeForExpiration),
+	}
+
+	_, err := m.collection.InsertOne(ctx, invalidToken)
+	if err != nil {
+		return fmt.Errorf("failed to invalidate device tokens: %w", err)
+	}
+
+	return nil
+}
+
+// Authorize validates a token and checks if it has permission to access an endpoint
 func (m *JWTManager) Authorize(ctx context.Context, endpoint string, tokenParser tokenParserFn) (*Claims, error) {
+	// Skip authorization if not required
 	if !m.needsAuth(endpoint) {
 		return nil, nil
 	}
 
+	// Extract token from context
 	accessToken, err := tokenParser(ctx)
 	if err != nil {
-		return nil, err
+		return nil, status.Errorf(codes.Unauthenticated, "failed to extract token: %v", err)
 	}
 
+	// Validate the token
 	claims, err := m.Validate(ctx, accessToken)
 	if err != nil {
-		//TODO: check error type. We might have a custom error type. Consider if it's necessary to introduce custom error type.
 		return nil, status.Errorf(codes.Unauthenticated, "access token is invalid: %v", err)
 	}
 
 	return claims, nil
 }
 
+// needsAuth checks if an endpoint requires authentication
 func (m *JWTManager) needsAuth(endpoint string) bool {
 	if !m.authEnabled {
 		return false
 	}
 
-	// If roles are empty, method is public
 	_, found := m.protectedRoles[endpoint]
 	return found
 }
