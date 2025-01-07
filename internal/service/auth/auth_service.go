@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 
 	"github.com/nsaltun/user-service-grpc/internal/repository"
 	"github.com/nsaltun/user-service-grpc/pkg/v1/auth"
@@ -55,7 +56,10 @@ func (s *auth_service) Refresh(ctx context.Context, refreshToken string) (string
 	// Validate refresh token and get new token pair
 	accessToken, newRefreshToken, err := s.jwtManager.RefreshTokens(ctx, refreshToken)
 	if err != nil {
-		return "", "", errwrap.ErrUnauthenticated.SetMessage("invalid refresh token").SetOriginError(err)
+		if errors.Is(err, auth.ErrInvalidateTokenFailed) {
+			return "", "", errwrap.ErrInternal.SetMessage("error while refreshing token").SetOriginError(err)
+		}
+		return "", "", errwrap.ErrUnauthenticated.SetMessage(err.Error()).SetOriginError(err)
 	}
 
 	return accessToken, newRefreshToken, nil

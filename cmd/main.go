@@ -46,7 +46,7 @@ func main() {
 		grpcmiddl.WithAuthInterceptor(jwtManager),
 	)
 	userapi.RegisterUserAPIServer(grpcServer.Server(), userAPI)
-	userapi.RegisterAuthServiceServer(grpcServer.Server(), authAPI)
+	userapi.RegisterAuthAPIServer(grpcServer.Server(), authAPI)
 
 	//grpcServer must init in the end
 	s.MustInit(grpcServer)

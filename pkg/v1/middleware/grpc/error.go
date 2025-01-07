@@ -6,7 +6,6 @@ import (
 	"github.com/nsaltun/user-service-grpc/pkg/v1/errwrap"
 	grpcserver "github.com/nsaltun/user-service-grpc/pkg/v1/grpc"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
@@ -21,11 +20,12 @@ func ErrorInterceptor() grpc.UnaryServerInterceptor {
 
 		// Check if the error implements IError interface
 		if ierr, ok := err.(errwrap.IError); ok {
-			return resp, status.Error(ierr.GrpcCode(), ierr.Error())
+			return resp, status.Error(ierr.GrpcCode(), ierr.Message())
 		}
+		ierr := errwrap.ErrInternal.SetOriginError(err)
 
 		// If error doesn't implement IError, return internal server error
-		return resp, status.Error(codes.Internal, "internal server error")
+		return resp, status.Error(ierr.GrpcCode(), ierr.ErrorResp().Message)
 	}
 }
 

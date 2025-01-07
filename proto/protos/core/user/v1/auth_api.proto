@@ -5,8 +5,8 @@ package core.user.v1;
 import "google/api/annotations.proto";
 import "google/api/field_behavior.proto";
 
-// AuthService handles authentication related operations
-service AuthService {
+// AuthAPI handles authentication related operations
+service AuthAPI {
     // Login authenticates a user with email and password
     rpc Login(LoginRequest) returns (LoginResponse) {
         option (google.api.http) = {

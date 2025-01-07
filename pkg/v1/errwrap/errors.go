@@ -14,6 +14,7 @@ type IError interface {
 	SetOriginError(err error) IError
 	HttpCode() int
 	GrpcCode() codes.Code
+	Message() string
 	ErrorResp() ErrorResponse
 	OriginErr() error
 }
@@ -70,6 +71,10 @@ func (e *errorWrapper) GrpcCode() codes.Code {
 	return e.grpcCode
 }
 
+func (e *errorWrapper) Message() string {
+	return e.message
+}
+
 func (e *errorWrapper) ErrorResp() ErrorResponse {
 	return ErrorResponse{
 		Code:    e.code,
@@ -78,7 +83,7 @@ func (e *errorWrapper) ErrorResp() ErrorResponse {
 }
 
 func (e *errorWrapper) Error() string {
-	return fmt.Sprintf("%s code:%s", e.message, e.code)
+	return fmt.Sprintf("%s code:%s. originErr:%v", e.message, e.code, e.originErr)
 }
 
 func (e *errorWrapper) OriginErr() error {

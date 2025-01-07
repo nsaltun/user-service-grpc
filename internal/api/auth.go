@@ -11,11 +11,11 @@ import (
 )
 
 type authAPI struct {
-	pb.UnimplementedAuthServiceServer
+	pb.UnimplementedAuthAPIServer
 	service auth.AuthService
 }
 
-func NewAuthAPI(service auth.AuthService) pb.AuthServiceServer {
+func NewAuthAPI(service auth.AuthService) pb.AuthAPIServer {
 	return &authAPI{service: service}
 }
 

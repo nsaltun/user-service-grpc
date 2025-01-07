@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -20,8 +21,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // Package level constants
@@ -41,8 +40,8 @@ const (
 	configKeyCollection      = "MONGODB_COLLECTION"
 
 	// Default duration values
-	defaultAccessDuration  = "30s"  // 15 minutes
-	defaultRefreshDuration = "168h" // 7 days
+	defaultAccessDuration  = "15m" // 15 minutes
+	defaultRefreshDuration = "72h" // 3 days
 )
 
 // Claims extends jwt.RegisteredClaims with custom fields for our JWT implementation
@@ -120,7 +119,7 @@ func NewJWTManager(mongoWrapper *mongohandler.MongoDBWrapper) *JWTManager {
 		"/core.user.v1.UserAPI/UpdateUserById": {"user"},
 		"/core.user.v1.UserAPI/DeleteUserById": {"user"},
 		"/core.user.v1.UserAPI/ListUsers":      {"user"},
-		"/core.user.v1.AuthService/Logout":     {"user"},
+		"/core.user.v1.AuthAPI/Logout":         {"user"},
 	}
 
 	collection := mongoWrapper.Collection(vi.GetString(configKeyCollection))
@@ -233,13 +232,13 @@ func (m *JWTManager) GenerateTokenPair(ctx context.Context, userID string, devic
 	// Generate access token first
 	accessToken, err = m.generateAccessToken(userID, now)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to generate access token: %w", err)
+		return "", "", ErrGenerateAccessTokenFailed.SetOriginErr(err)
 	}
 
 	// Generate refresh token
 	refreshToken, err = m.generateRefreshToken(userID, deviceID, now)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to generate refresh token: %w", err)
+		return "", "", ErrGenerateRefreshTokenFailed.SetOriginErr(err)
 	}
 
 	return accessToken, refreshToken, nil
@@ -289,26 +288,29 @@ func (m *JWTManager) Validate(ctx context.Context, tokenStr string) (*Claims, er
 		func(token *jwt.Token) (interface{}, error) {
 			// Verify the signing method
 			if _, ok := token.Method.(*jwt.SigningMethodECDSA); !ok {
-				return nil, fmt.Errorf("unexpected token signing method")
+				return nil, ErrInvalidToken.SetOriginErr(fmt.Errorf("unexpected token signing method"))
 			}
 			return m.publicKey, nil
 		},
 	)
 
 	if err != nil {
-		return nil, fmt.Errorf("invalid token: %w", err)
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return nil, ErrTokenExpired.SetOriginErr(err)
+		}
+		return nil, ErrTokenJwtParse.SetOriginErr(err)
 	}
 
 	if !token.Valid {
-		return nil, fmt.Errorf("invalid token")
+		return nil, ErrInvalidToken
 	}
 
 	// Verify token type
 	if claims.TokenType == "" {
-		return nil, fmt.Errorf("token type not specified")
+		return nil, ErrTokenTypeNotSpecified
 	}
 	if claims.TokenType != TokenTypeAccess {
-		return nil, fmt.Errorf("invalid token type: expected access token")
+		return nil, ErrInvalidTokenTypeExpectedAccess
 	}
 
 	// Check if token has been invalidated
@@ -335,12 +337,12 @@ func (m *JWTManager) Validate(ctx context.Context, tokenStr string) (*Claims, er
 
 	switch {
 	case err == nil:
-		return nil, fmt.Errorf("token has been invalidated")
+		return nil, ErrTokenInvalidated
 	case err == mongo.ErrNoDocuments:
 		// No invalidation record found -> token is valid
 		return &claims, nil
 	default:
-		return nil, fmt.Errorf("failed to verify token status: %w", err)
+		return nil, ErrTokenStatusVerificationFailed.SetOriginErr(err)
 	}
 }
 
@@ -349,7 +351,7 @@ func (m *JWTManager) RefreshTokens(ctx context.Context, refreshToken string) (ac
 	// Validate the refresh token
 	claims, err := m.validateRefreshToken(ctx, refreshToken)
 	if err != nil {
-		return "", "", fmt.Errorf("refresh token validation failed: %w", err)
+		return "", "", err
 	}
 
 	now := time.Now()
@@ -357,19 +359,19 @@ func (m *JWTManager) RefreshTokens(ctx context.Context, refreshToken string) (ac
 	// Generate new access token
 	accessToken, err = m.generateAccessToken(claims.UserID, now)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to generate new access token: %w", err)
+		return "", "", ErrGenerateAccessTokenFailed.SetOriginErr(err)
 	}
 
 	// Generate new refresh token
 	newRefreshToken, err = m.generateRefreshToken(claims.UserID, claims.DeviceID, now)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to generate new refresh token: %w", err)
+		return "", "", ErrGenerateRefreshTokenFailed.SetOriginErr(err)
 	}
 
 	// Invalidate the old refresh token
 	invalidatedAt := now.Add(-time.Second)
 	if err = m.InvalidateToken(ctx, claims.UserID, claims.DeviceID, TokenTypeRefresh, invalidatedAt); err != nil {
-		return "", "", fmt.Errorf("failed to invalidate old refresh token: %w", err)
+		return "", "", ErrInvalidateTokenFailed.SetOriginErr(err)
 	}
 
 	return accessToken, newRefreshToken, nil
@@ -385,23 +387,26 @@ func (m *JWTManager) validateRefreshToken(ctx context.Context, tokenStr string) 
 		&claims,
 		func(token *jwt.Token) (interface{}, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodECDSA); !ok {
-				return nil, fmt.Errorf("unexpected token signing method")
+				return nil, ErrInvalidToken.SetOriginErr(fmt.Errorf("unexpected token signing method"))
 			}
 			return m.publicKey, nil
 		},
 	)
 
 	if err != nil {
-		return nil, fmt.Errorf("invalid token: %w", err)
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return nil, ErrTokenExpired.SetOriginErr(err)
+		}
+		return nil, ErrTokenJwtParse.SetOriginErr(err)
 	}
 
 	if !token.Valid {
-		return nil, fmt.Errorf("invalid token")
+		return nil, ErrInvalidToken
 	}
 
 	// Verify token type
 	if claims.TokenType != TokenTypeRefresh {
-		return nil, fmt.Errorf("invalid token type: expected refresh token")
+		return nil, ErrInvalidTokenTypeExpectedRefresh
 	}
 
 	// Check if token has been invalidated before issued at time.
@@ -428,9 +433,9 @@ func (m *JWTManager) validateRefreshToken(ctx context.Context, tokenStr string) 
 	var invalidToken UserInvalidatedToken
 	err = m.collection.FindOne(ctx, filter).Decode(&invalidToken)
 	if err == nil {
-		return nil, fmt.Errorf("refresh token has been invalidated")
+		return nil, ErrTokenInvalidated
 	} else if err != mongo.ErrNoDocuments {
-		return nil, fmt.Errorf("failed to verify token status: %w", err)
+		return nil, ErrTokenStatusVerificationFailed.SetOriginErr(err)
 	}
 
 	return &claims, nil
@@ -458,7 +463,7 @@ func (m *JWTManager) InvalidateUserTokens(ctx context.Context, userID string) er
 
 	_, err := m.collection.InsertMany(ctx, invalidations)
 	if err != nil {
-		return fmt.Errorf("failed to invalidate user tokens: %w", err)
+		return ErrInvalidateTokenFailed.SetOriginErr(err)
 	}
 
 	return nil
@@ -474,7 +479,7 @@ func (m *JWTManager) InvalidateTokensBefore(ctx context.Context, userID string, 
 
 	_, err := m.collection.InsertOne(ctx, invalidToken)
 	if err != nil {
-		return fmt.Errorf("failed to invalidate tokens: %w", err)
+		return ErrInvalidateTokenFailed.SetOriginErr(err)
 	}
 
 	return nil
@@ -499,7 +504,7 @@ func (m *JWTManager) InvalidateToken(ctx context.Context, userID, deviceID, toke
 
 	_, err := m.collection.InsertOne(ctx, invalidToken)
 	if err != nil {
-		return fmt.Errorf("failed to invalidate token: %w", err)
+		return ErrInvalidateTokenFailed.SetOriginErr(err)
 	}
 
 	return nil
@@ -534,13 +539,13 @@ func (m *JWTManager) Authorize(ctx context.Context, endpoint string, tokenParser
 	// Extract token from context
 	accessToken, err := tokenParser(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Unauthenticated, "failed to extract token: %v", err)
+		return nil, err
 	}
 
 	// Validate the token
 	claims, err := m.Validate(ctx, accessToken)
 	if err != nil {
-		return nil, status.Errorf(codes.Unauthenticated, "access token is invalid: %v", err)
+		return nil, err
 	}
 
 	return claims, nil
